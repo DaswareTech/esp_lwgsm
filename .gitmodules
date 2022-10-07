@@ -1,0 +1,4 @@
+[submodule "lwgsm"]
+	path = lwgsm
+	url = https://github.com/rafo-og/lwgsm.git
+	branch = feature-sim7080g
