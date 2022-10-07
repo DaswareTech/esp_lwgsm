@@ -6,6 +6,7 @@
 #include "network_utils.h"
 #include "operator_utils.h"
 #include "lwgsm/lwgsm_certs.h"
+#include "lwgsm/lwgsm_mem.h"
 
 #include "esp_lwgsm.h"
 
@@ -51,15 +52,13 @@ esp_err_t esp_lwgsm_init()
         return ret;
     }
 
-    ESP_LOGD(TAG, "Initialized.");
-
     /* Check SIM state and enter pin if needed */
     if(simState == LWGSM_SIM_STATE_PIN){
         if (configure_sim_card()) {
             ESP_LOGD(TAG, "SIM card configured.");
             lwgsm_delay(10000);
         } else {
-            ESP_LOGD(TAG, "Cannot configure SIM card! Is it inserted, pin valid and not under PUK? Closing down...");
+            ESP_LOGE(TAG, "Cannot configure SIM card! Is it inserted, pin valid and not under PUK? Closing down...");
             return lwgsmERR;
         }
     }
@@ -82,8 +81,6 @@ esp_err_t esp_lwgsm_init()
         ret = lwgsm_network_request_attach();
         if(ret != lwgsmOK){lwgsm_delay(5000);};
     } while(ret != lwgsmOK);
-
-    ESP_LOGI(TAG, "Operator network attached.");
     
     res = ret == lwgsmOK ? ESP_OK : ESP_FAIL;
 
@@ -273,9 +270,11 @@ uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
  */
 static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
 {
+    char* report = NULL;
+
     switch (lwgsm_evt_get_type(evt)) {
         case LWGSM_EVT_INIT_FINISH: 
-            ESP_LOGI(TAG, "ESP LWGSM initialized.");
+            ESP_LOGI(TAG, "Initialized.");
             break;
         case LWGSM_EVT_RESET:
             ESP_LOGI(TAG, "Reset complete.");
@@ -286,29 +285,37 @@ static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
         case LWGSM_EVT_CMD_TIMEOUT:
             ESP_LOGW(TAG, "Timeout.");
             break;
-        // /* Process and print registration change */
         case LWGSM_EVT_NETWORK_REG_CHANGED:
-            network_utils_process_reg_change(evt);
+            network_utils_process_reg_change(evt, &report);
             break;
-        /* Process current network operator */
         case LWGSM_EVT_NETWORK_OPERATOR_CURRENT:
-            network_utils_process_curr_operator(evt);
+            network_utils_process_curr_operator(evt, &report);
             break;
-        /* Process signal strength */
         case LWGSM_EVT_SIGNAL_STRENGTH:
-            network_utils_process_rssi(evt);
+            network_utils_process_rssi(evt, &report);
             break;
         case LWGSM_EVT_SIM_STATE_CHANGED:
-            process_sim_evt(evt);
+            process_sim_evt(evt, &report);
             simState = evt->evt.cpin.state;
             break;
         case LWGSM_EVT_OPERATOR_SCAN:
             operator_utils_print_scan(evt);
             break;
-        /* Other user events here... */
+        case LWGSM_EVT_NETWORK_ATTACHED:
+            ESP_LOGI(TAG, "Operator network attached.");
+            break;
+        case LWGSM_EVT_NETWORK_DETACHED:
+            ESP_LOGW(TAG, "Operator network detached.");
+            break;
         default:
             ESP_LOGI(TAG, "CB called but not captured. Event: %d", lwgsm_evt_get_type(evt));
             break;
     }
+
+    if(report != NULL) {
+        ESP_LOGI(TAG, "%s", report);
+        lwgsm_mem_free(report);
+    }
+
     return lwgsmOK;
 }

@@ -65,6 +65,7 @@
 #define LWGSM_CFG_DBG_CONN          LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_IPD           LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_PBUF          LWGSM_DBG_OFF
+#define LWGSM_CFG_DBG_LL            LWGSM_DBG_OFF
 
 
 #include "esp_log.h"
@@ -91,7 +92,6 @@
 #define LWGSM_PRIMARY_DNS_SERVER        "8.8.8.8"           // Google Primary DNS server
 #define LWGSM_SECONDARY_DNS_SERVER      "8.8.4.4"           // Google Secondary DNS server
 
-#include "ssl_certs.h"
 #define LWGSM_SSL_STACK                 1
 #define CA_ROOT_LABEL                   "ca_root.pem"
 #define CLIENT_CERT_LABEL               "client.pem"
