@@ -86,7 +86,14 @@ esp_err_t esp_lwgsm_init()
 
     return res;
 }
-
+/**
+ * \brief           Creates a TCP connection to a specified host and port
+ * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
+ * \param[in]       host: The host address
+ * \param[in]       port: The connection port
+ * \param[in]       block: Status whether command should be blocking or not
+ * \return          \ref ESP_OK on success, member of \ref esp_err_t otherwise
+ */
 esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
 {
     esp_err_t res;
@@ -121,7 +128,11 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
 
     return res;
 }
-
+/**
+ * \brief           Close a connection
+ * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
+ * \return          \ref ESP_OK on success, member of \ref esp_err_t otherwise
+ */
 esp_err_t esp_lwgsm_close(int fd)
 {
     lwgsmr_t ret;
@@ -138,7 +149,14 @@ esp_err_t esp_lwgsm_close(int fd)
 
     return ret == lwgsmOK ? 0 : -1;
 }
-
+/**
+ * \brief           Send data over a connection stablished
+ * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
+ * \param[in]       data: Pointer to data to send
+ * \param[in]       datalen: Number of bytes to send
+ * \param[in]       flags: (Not used) Added for compatibility purposes
+ * \return          \ref Number of bytes sent, -1 in case of error or timeout
+ */
 int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags)
 {
     lwgsmr_t ret;
@@ -157,7 +175,14 @@ int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags)
 
     return datalen;
 }
-
+/**
+ * \brief           Read data from a stablished connection
+ * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
+ * \param[in]       data: Pointer to a buffer where the data is going to be stored
+ * \param[in]       datalen: Number of bytes to receive at most
+ * \param[in]       flags: (Not used) Added for compatibility purposes
+ * \return          \ref Number of bytes read, -1 in case of error or timeout
+ */
 int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
 {
     lwgsmr_t ret;
@@ -201,7 +226,13 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
 
     return data_recv;
 }
-
+/**
+ * \brief           esp_lwgsm_send wrapper to be compatible with esp_mbedtls
+ * \param[in]       ctx: Network context, see \ref 'esp_lwgsm_mbedtls_net_context_t'
+ * \param[in]       data: Pointer to data to send
+ * \param[in]       datalen: Number of bytes to receive at most
+ * \return          \ref Number of bytes read, -1 in case of error or timeout
+ */
 int esp_lwgsm_mbedtls_send(void* ctx, const unsigned char* data, size_t datalen)
 {
     int ret;
@@ -217,7 +248,13 @@ int esp_lwgsm_mbedtls_send(void* ctx, const unsigned char* data, size_t datalen)
     }
     return ( ret );
 }
-
+/**
+ * \brief           esp_lwgsm_recv wrapper to be compatible with esp_mbedtls
+ * \param[in]       ctx: Network context, see \ref 'esp_lwgsm_mbedtls_net_context_t'
+ * \param[in]       data: Pointer to a buffer where the data is going to be stored
+ * \param[in]       datalen: Number of bytes to receive at most
+ * \return          \ref Number of bytes read, -1 in case of error or timeout
+ */
 int esp_lwgsm_mbedtls_recv(void* ctx, unsigned char* data, size_t datalen)
 {
     int ret;
@@ -234,7 +271,12 @@ int esp_lwgsm_mbedtls_recv(void* ctx, unsigned char* data, size_t datalen)
     }
     return ( ret );
 }
-
+/**
+ * \brief           Check if connection has been stablished for a time period
+ * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
+ * \param[in]       timeout: Maximum time checking the connection
+ * \return          \ref 1 if connected, 0 otherwise
+ */
 uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
 {
     uint8_t connected;
@@ -262,7 +304,6 @@ uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
 
     return connected;
 }
-
 /**
  * \brief           Event callback function for GSM stack
  * \param[in]       evt: Event information with data
