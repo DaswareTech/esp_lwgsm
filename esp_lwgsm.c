@@ -1,14 +1,26 @@
-#include "esp_log.h"
+/* LWGSM includes */
 #include "lwgsm/lwgsm.h"
 #include "lwgsm/lwgsm_netconn.h"
 #include "lwgsm/lwgsm_network_api.h"
-#include "sim_manager.h"
-#include "network_utils.h"
-#include "operator_utils.h"
 #include "lwgsm/lwgsm_certs.h"
 #include "lwgsm/lwgsm_mem.h"
 
+/* ESP IDF includes */
+#include "esp_log.h"
+
+/* Own include */
 #include "esp_lwgsm.h"
+
+/* Utils */
+#include "sim_manager.h"
+#include "network_utils.h"
+#include "operator_utils.h"
+
+/*******************************************************************************
+ * 
+ * Defines
+ * 
+*******************************************************************************/
 
 #define ESP_LWGSM_MBEDTLS_ERR_NET_INVALID_CONTEXT   -0x0045
 #define ESP_LWGSM_MBEDTLS_ERR_NET_SEND_FAILED       -0x004E
@@ -22,11 +34,22 @@
                                 }   \
                             } while(0)
 
+/*******************************************************************************
+ * 
+ * Typedefs, enums and structs
+ * 
+*******************************************************************************/
+
 typedef struct esp_lwgsm_mbedtls_net_context
 {
     int fd;             /**< The underlying file descriptor                 */
 } esp_lwgsm_mbedtls_net_context_t;
 
+/*******************************************************************************
+ * 
+ * Static variables
+ * 
+*******************************************************************************/
 
 static const char* TAG = "ESP_LGSM";
 
@@ -34,58 +57,53 @@ static lwgsm_sim_state_t simState;
 lwgsm_netconn_p client;
 lwgsm_pbuf_p pbuf;
 
+/*******************************************************************************
+ * 
+ * Private function prototypes
+ * 
+*******************************************************************************/
+
 static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt);
+static esp_err_t prv_esp_lwgsm_init(uint8_t reinit);
+
+/*******************************************************************************
+ * 
+ * Public function bodies
+ * 
+*******************************************************************************/
 
 /**
- * \brief           Initialize the LWGSM stack, unlock SIM card and attach to operator network
+ * \brief           Initialize the LWGSM stack, reset the GSM module, unlock SIM card and attach to operator network
  * \return          \ref lwgsmOK on success, member of \ref lwgsmr_t otherwise
  */
 esp_err_t esp_lwgsm_init()
 {
-    lwgsmr_t ret;
-    esp_err_t res;
-    int16_t rssi = 0;
-
-    ret = lwgsm_init(esp_lwgsm_cb_func, 1);
-    if(ret != lwgsmOK){
-        ESP_LOGE(TAG, "Cannot initialize.\r\n");
-        return ret;
-    }
-
-    /* Check SIM state and enter pin if needed */
-    if(simState == LWGSM_SIM_STATE_PIN){
-        if (configure_sim_card()) {
-            ESP_LOGD(TAG, "SIM card configured.");
-            lwgsm_delay(10000);
-        } else {
-            ESP_LOGE(TAG, "Cannot configure SIM card! Is it inserted, pin valid and not under PUK? Closing down...");
-            return lwgsmERR;
-        }
-    }
-
-    ret = lwgsm_network_request_define_pdp_context(ESP_LWGSM_PDP_INDEX, LWGSM_PDP_TYPE_IP, ESP_LWGSM_APN_NAME, ESP_LWGSM_PDP_ADDRESS, LWGSM_APN_D_COMP_OFF,
-                LWGSM_APN_H_COMP_OFF, false, true);
-    if(ret != lwgsmOK){
-        ESP_LOGE(TAG, "Cannot set APN credentials.\r\n");
-        return ret;
-    }
-
-    /* Check signal strength */
-    do{
-        ret = lwgsm_network_rssi(&rssi, NULL, NULL, pdTRUE);
-        if(rssi != 0){ break; }
-        lwgsm_delay(5000);
-    } while((rssi == 0) && (ret == lwgsmOK));
-
-    do{
-        ret = lwgsm_network_request_attach();
-        if(ret != lwgsmOK){lwgsm_delay(5000);};
-    } while(ret != lwgsmOK);
-    
-    res = ret == lwgsmOK ? ESP_OK : ESP_FAIL;
-
-    return res;
+    return prv_esp_lwgsm_init(0);
 }
+
+/**
+ * \brief           Reset the GSM module, unlock SIM card and attach to operator network
+ * \return          \ref lwgsmOK on success, member of \ref lwgsmr_t otherwise
+ */
+esp_err_t esp_lwgsm_reinit()
+{
+    return prv_esp_lwgsm_init(1);
+}
+
+/**
+ * @brief Reset the GSM module
+ * 
+ * @return esp_err_t ESP_OK if success, ESP_FAIL otherwise
+ */
+esp_err_t esp_lwgsm_reset()
+{
+    lwgsmr_t ret;
+
+    ret = lwgsm_reset_with_delay(LWGSM_CFG_RESET_DELAY_DEFAULT, NULL, NULL, 1);
+
+    return ret == lwgsmOK ? ESP_OK : ESP_FAIL;
+}
+
 /**
  * \brief           Creates a TCP connection to a specified host and port
  * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
@@ -128,6 +146,7 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
 
     return res;
 }
+
 /**
  * \brief           Close a connection
  * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
@@ -149,6 +168,7 @@ esp_err_t esp_lwgsm_close(int fd)
 
     return ret == lwgsmOK ? 0 : -1;
 }
+
 /**
  * \brief           Send data over a connection stablished
  * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
@@ -175,6 +195,7 @@ int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags)
 
     return datalen;
 }
+
 /**
  * \brief           Read data from a stablished connection
  * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
@@ -226,6 +247,7 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
 
     return data_recv;
 }
+
 /**
  * \brief           esp_lwgsm_send wrapper to be compatible with esp_mbedtls
  * \param[in]       ctx: Network context, see \ref 'esp_lwgsm_mbedtls_net_context_t'
@@ -248,6 +270,7 @@ int esp_lwgsm_mbedtls_send(void* ctx, const unsigned char* data, size_t datalen)
     }
     return ( ret );
 }
+
 /**
  * \brief           esp_lwgsm_recv wrapper to be compatible with esp_mbedtls
  * \param[in]       ctx: Network context, see \ref 'esp_lwgsm_mbedtls_net_context_t'
@@ -271,6 +294,7 @@ int esp_lwgsm_mbedtls_recv(void* ctx, unsigned char* data, size_t datalen)
     }
     return ( ret );
 }
+
 /**
  * \brief           Check if connection has been stablished for a time period
  * \param[in]       fd: Socket handler. The number of the 'lwgsm_conn_t' to use
@@ -304,6 +328,34 @@ uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
 
     return connected;
 }
+
+/**
+ * @brief Perform an operator scan
+ * 
+ * @return esp_err_t ESP_OK if sucess, ESP_FAIL otherwise
+ */
+esp_err_t esp_lwgsm_oper_scan()
+{
+    lwgsmr_t ret;
+    lwgsm_operator_t* operators;
+    uint16_t operator_array_len = 10;
+    size_t operators_len;
+
+    operators = lwgsm_mem_malloc(operator_array_len*sizeof(lwgsm_operator_t));
+
+    ret = lwgsm_operator_scan(operators, operator_array_len, &operators_len, NULL, NULL, 1);
+
+    lwgsm_mem_free(operators);
+
+    return ret == lwgsmOK ? ESP_OK : ESP_FAIL;
+}
+
+/*******************************************************************************
+ * 
+ * Private function bodies
+ * 
+*******************************************************************************/
+
 /**
  * \brief           Event callback function for GSM stack
  * \param[in]       evt: Event information with data
@@ -359,4 +411,72 @@ static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
     }
 
     return lwgsmOK;
+}
+
+/**
+ * \brief           Initialize the LWGSM stack, unlock SIM card and attach to operator network
+ * \param[in]       reinit: Flag to indicate if the function should initialize or reinitialize
+ * \return          \ref lwgsmOK on success, member of \ref lwgsmr_t otherwise
+ */
+static esp_err_t prv_esp_lwgsm_init(uint8_t reinit)
+{
+    lwgsmr_t ret;
+    esp_err_t res;
+    int16_t rssi = 0;
+
+    if(!reinit){
+        ret = lwgsm_init(esp_lwgsm_cb_func, 1);
+        if(ret != lwgsmOK){
+            ESP_LOGE(TAG, "Cannot initialize.\r\n");
+            return ret;
+        }
+    }
+    else{
+        
+        ret = esp_lwgsm_oper_scan();
+        if(ret != lwgsmOK){
+            ESP_LOGE(TAG, "Operator scan failed.\r\n");
+            return ret;
+        }
+
+        ret = esp_lwgsm_reset();
+        if(ret != lwgsmOK){
+            ESP_LOGE(TAG, "Cannot reset.\r\n");
+            return ret;
+        }
+    }
+
+    /* Check SIM state and enter pin if needed */
+    if(simState == LWGSM_SIM_STATE_PIN){
+        if (configure_sim_card()) {
+            ESP_LOGD(TAG, "SIM card configured.");
+            lwgsm_delay(10000);
+        } else {
+            ESP_LOGE(TAG, "Cannot configure SIM card! Is it inserted, pin valid and not under PUK? Closing down...");
+            return lwgsmERR;
+        }
+    }
+
+    /* Check signal strength */
+    do{
+        ret = lwgsm_network_rssi(&rssi, NULL, NULL, pdTRUE);
+        if(rssi != 0){ break; }
+        lwgsm_delay(5000);
+    } while((rssi == 0) && (ret == lwgsmOK));
+
+    ret = lwgsm_network_request_define_pdp_context(ESP_LWGSM_PDP_INDEX, LWGSM_PDP_TYPE_IP, ESP_LWGSM_APN_NAME, ESP_LWGSM_PDP_ADDRESS, LWGSM_APN_D_COMP_OFF,
+                LWGSM_APN_H_COMP_OFF, false, true);
+    if(ret != lwgsmOK){
+        ESP_LOGE(TAG, "Cannot set APN credentials.\r\n");
+        return ret;
+    }
+
+    do{
+        ret = lwgsm_network_request_attach();
+        if(ret != lwgsmOK){lwgsm_delay(5000);};
+    } while(ret != lwgsmOK);
+    
+    res = ret == lwgsmOK ? ESP_OK : ESP_FAIL;
+
+    return res;
 }

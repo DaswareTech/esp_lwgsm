@@ -65,7 +65,7 @@
 #define LWGSM_CFG_DBG_CONN          LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_IPD           LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_PBUF          LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_LL            LWGSM_DBG_OFF
+#define LWGSM_CFG_DBG_LL            LWGSM_DBG_ON
 
 
 #include "esp_log.h"
@@ -74,7 +74,7 @@
                                             } while (0)
 
 /* Time in milliseconds for sending first AT command after reset */
-#define LWGSM_CFG_RESET_DELAY_DEFAULT       20000
+#define LWGSM_CFG_RESET_DELAY_DEFAULT       5000
 #define LWGSM_CFG_RESET_ON_INIT             1
 
 /*
