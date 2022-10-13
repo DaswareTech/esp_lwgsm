@@ -18,5 +18,6 @@ int esp_lwgsm_mbedtls_send(void* ctx, const unsigned char* data, size_t datalen)
 int esp_lwgsm_mbedtls_recv(void* ctx, unsigned char* data, size_t datalen);
 uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout);
 esp_err_t esp_lwgsm_oper_scan();
+int esp_lwgsm_set_recv_timeout(int fd, uint32_t timeout);
 
 #endif /* ESP_LWGSM_H */

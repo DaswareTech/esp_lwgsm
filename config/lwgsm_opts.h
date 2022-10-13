@@ -65,7 +65,8 @@
 #define LWGSM_CFG_DBG_CONN          LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_IPD           LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_PBUF          LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_LL            LWGSM_DBG_ON
+#define LWGSM_CFG_DBG_LL_SEND       LWGSM_DBG_OFF
+#define LWGSM_CFG_DBG_LL_RECV       LWGSM_DBG_OFF
 
 
 #include "esp_log.h"

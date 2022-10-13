@@ -25,8 +25,7 @@
 #define ESP_LWGSM_MBEDTLS_ERR_NET_INVALID_CONTEXT   -0x0045
 #define ESP_LWGSM_MBEDTLS_ERR_NET_SEND_FAILED       -0x004E
 #define ESP_LWGSM_MBEDTLS_ERR_NET_RECV_FAILED       -0x004C
-
-#define ESP_LWGSM_RECV_TIMEOUT_MS      10000
+#define ESP_LWGSM_MBEDTLS_ERR_SSL_WANT_READ         -0x6900
 
 #define CHECK_LWGSMOK(x)    do{     \
                                 if((x) != lwgsmOK){ \
@@ -133,8 +132,6 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
             }
         }
     }
-
-    lwgsm_netconn_set_receive_timeout(client, ESP_LWGSM_RECV_TIMEOUT_MS);
     
     if(ret == lwgsmERR){
         ESP_LOGE(TAG, "Error connecting server...");
@@ -222,7 +219,12 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
 
     if(pbuf == NULL){
         ret = lwgsm_netconn_receive(client, &pbuf);
-        CHECK_LWGSMOK(ret);
+        if(ret == lwgsmTIMEOUT){
+            return 0;
+        }
+        else if(ret != lwgsmOK){
+            return -1;
+        }
         pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
         ESP_LOGD(TAG, "Pbuf_tot_len = %d", pbuf_tot_len);
     }
@@ -292,6 +294,9 @@ int esp_lwgsm_mbedtls_recv(void* ctx, unsigned char* data, size_t datalen)
     if(ret < 0){
         return ( ESP_LWGSM_MBEDTLS_ERR_NET_RECV_FAILED );
     }
+    else if(ret == 0){
+        return ( ESP_LWGSM_MBEDTLS_ERR_SSL_WANT_READ );
+    }
     return ( ret );
 }
 
@@ -350,6 +355,24 @@ esp_err_t esp_lwgsm_oper_scan()
     return ret == lwgsmOK ? ESP_OK : ESP_FAIL;
 }
 
+/**
+ * @brief Set receive timeout
+ * 
+ * @param fd Socket handler. The number of the 'lwgsm_conn_t' to use
+ * @param timeout Timeout to wait a for receive
+ * @return int 
+ */
+int esp_lwgsm_set_recv_timeout(int fd, uint32_t timeout)
+{
+    if(lwgsm_netconn_getconnnum(client) != fd){
+        return -1;
+    }
+
+    lwgsm_netconn_set_receive_timeout(client, timeout);
+
+    return 0;
+}
+
 /*******************************************************************************
  * 
  * Private function bodies
@@ -376,7 +399,7 @@ static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
             ESP_LOGD(TAG, "Device identified.");
             break;
         case LWGSM_EVT_CMD_TIMEOUT:
-            ESP_LOGW(TAG, "Timeout.");
+            ESP_LOGW(TAG, "Operation timeout.");
             break;
         case LWGSM_EVT_NETWORK_REG_CHANGED:
             network_utils_process_reg_change(evt, &report);
