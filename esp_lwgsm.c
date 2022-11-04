@@ -50,7 +50,7 @@ typedef struct esp_lwgsm_mbedtls_net_context
  * 
 *******************************************************************************/
 
-static const char* TAG = "ESP_LGSM";
+static const char* TAG = "ESP_LWGSM";
 
 static lwgsm_sim_state_t simState;
 lwgsm_netconn_p client;
@@ -96,9 +96,15 @@ esp_err_t esp_lwgsm_reinit()
  */
 esp_err_t esp_lwgsm_reset()
 {
-    lwgsmr_t ret;
+    lwgsmr_t ret = lwgsmOK;
 
-    ret = lwgsm_reset_with_delay(LWGSM_CFG_RESET_DELAY_DEFAULT, NULL, NULL, 1);
+    if(lwgsm_network_is_attached()){
+        ret = lwgsm_network_request_detach();
+    }
+
+    if(ret == lwgsmOK){
+        ret = lwgsm_reset_with_delay(LWGSM_CFG_RESET_DELAY_DEFAULT, NULL, NULL, 1);
+    }
 
     return ret == lwgsmOK ? ESP_OK : ESP_FAIL;
 }
@@ -162,6 +168,8 @@ esp_err_t esp_lwgsm_close(int fd)
     ret = lwgsm_netconn_delete(client);
 
     client = NULL;
+
+    ESP_LOGI(TAG, "Connection closed.");
 
     return ret == lwgsmOK ? 0 : -1;
 }
@@ -456,12 +464,7 @@ static esp_err_t prv_esp_lwgsm_init(uint8_t reinit)
     }
     else{
         
-        ret = esp_lwgsm_oper_scan();
-        if(ret != lwgsmOK){
-            ESP_LOGE(TAG, "Operator scan failed.\r\n");
-            return ret;
-        }
-
+        ESP_LOGD(TAG, "Reset GSM module...");
         ret = esp_lwgsm_reset();
         if(ret != lwgsmOK){
             ESP_LOGE(TAG, "Cannot reset.\r\n");
