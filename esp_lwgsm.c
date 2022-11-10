@@ -1,5 +1,4 @@
 /* LWGSM includes */
-#include "lwgsm/lwgsm.h"
 #include "lwgsm/lwgsm_netconn.h"
 #include "lwgsm/lwgsm_network_api.h"
 #include "lwgsm/lwgsm_certs.h"
@@ -62,8 +61,9 @@ lwgsm_pbuf_p pbuf;
  * 
 *******************************************************************************/
 
-static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt);
-static esp_err_t prv_esp_lwgsm_init(uint8_t reinit);
+static lwgsmr_t esp_lwgsm_event_cb(lwgsm_evt_t* evt);
+static lwgsm_evt_fn esp_lwgsm_user_cb;
+static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit);
 
 /*******************************************************************************
  * 
@@ -75,9 +75,9 @@ static esp_err_t prv_esp_lwgsm_init(uint8_t reinit);
  * \brief           Initialize the LWGSM stack, reset the GSM module, unlock SIM card and attach to operator network
  * \return          \ref lwgsmOK on success, member of \ref lwgsmr_t otherwise
  */
-esp_err_t esp_lwgsm_init()
+esp_err_t esp_lwgsm_init(lwgsm_evt_fn evt_func)
 {
-    return prv_esp_lwgsm_init(0);
+    return prv_esp_lwgsm_init(evt_func, 0);
 }
 
 /**
@@ -86,7 +86,7 @@ esp_err_t esp_lwgsm_init()
  */
 esp_err_t esp_lwgsm_reinit()
 {
-    return prv_esp_lwgsm_init(1);
+    return prv_esp_lwgsm_init(NULL, 1);
 }
 
 /**
@@ -392,7 +392,7 @@ int esp_lwgsm_set_recv_timeout(int fd, uint32_t timeout)
  * \param[in]       evt: Event information with data
  * \return          \ref lwgsmOK on success, member of \ref lwgsmr_t otherwise
  */
-static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
+static lwgsmr_t esp_lwgsm_event_cb(lwgsm_evt_t* evt)
 {
     char* report = NULL;
 
@@ -411,6 +411,7 @@ static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
             break;
         case LWGSM_EVT_NETWORK_REG_CHANGED:
             network_utils_process_reg_change(evt, &report);
+            if(esp_lwgsm_user_cb != NULL) { esp_lwgsm_user_cb(evt); }
             break;
         case LWGSM_EVT_NETWORK_OPERATOR_CURRENT:
             network_utils_process_curr_operator(evt, &report);
@@ -421,15 +422,18 @@ static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
         case LWGSM_EVT_SIM_STATE_CHANGED:
             process_sim_evt(evt, &report);
             simState = evt->evt.cpin.state;
+            if(esp_lwgsm_user_cb != NULL) { esp_lwgsm_user_cb(evt); }
             break;
         case LWGSM_EVT_OPERATOR_SCAN:
             operator_utils_print_scan(evt);
             break;
         case LWGSM_EVT_NETWORK_ATTACHED:
             ESP_LOGI(TAG, "Operator network attached.");
+            if(esp_lwgsm_user_cb != NULL) { esp_lwgsm_user_cb(evt); }
             break;
         case LWGSM_EVT_NETWORK_DETACHED:
             ESP_LOGW(TAG, "Operator network detached.");
+            if(esp_lwgsm_user_cb != NULL) { esp_lwgsm_user_cb(evt); }
             break;
         default:
             ESP_LOGI(TAG, "CB called but not captured. Event: %d", lwgsm_evt_get_type(evt));
@@ -449,14 +453,19 @@ static lwgsmr_t esp_lwgsm_cb_func(lwgsm_evt_t* evt)
  * \param[in]       reinit: Flag to indicate if the function should initialize or reinitialize
  * \return          \ref lwgsmOK on success, member of \ref lwgsmr_t otherwise
  */
-static esp_err_t prv_esp_lwgsm_init(uint8_t reinit)
+static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
 {
     lwgsmr_t ret;
     esp_err_t res;
     int16_t rssi = 0;
 
     if(!reinit){
-        ret = lwgsm_init(esp_lwgsm_cb_func, 1);
+        ret = lwgsm_init(esp_lwgsm_event_cb, 1);
+        if(evt_func != NULL){
+            esp_lwgsm_user_cb = evt_func;
+        }else{
+            esp_lwgsm_user_cb = NULL;
+        }
         if(ret != lwgsmOK){
             ESP_LOGE(TAG, "Cannot initialize.\r\n");
             return ret;

@@ -5,9 +5,10 @@
 #define ESP_LWGSM_APN_NAME        "orangeworld"
 #define ESP_LWGSM_PDP_ADDRESS     "0.0.0.0"
 
+#include "lwgsm/lwgsm.h"
 #include "esp_err.h"
 
-esp_err_t esp_lwgsm_init();
+esp_err_t esp_lwgsm_init(lwgsm_evt_fn evt_func);
 esp_err_t esp_lwgsm_reinit();
 esp_err_t esp_lwgsm_reset();
 esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block);
