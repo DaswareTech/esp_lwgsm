@@ -7,13 +7,16 @@
 /* ESP IDF includes */
 #include "esp_log.h"
 
-/* Own include */
-#include "esp_lwgsm.h"
-
 /* Utils */
 #include "sim_manager.h"
 #include "network_utils.h"
 #include "operator_utils.h"
+
+/* AWS provisioning */
+#include "aws_provisioning.h"
+
+/* Own include */
+#include "esp_lwgsm.h"
 
 /*******************************************************************************
  * 
@@ -458,6 +461,8 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     lwgsmr_t ret;
     esp_err_t res;
     int16_t rssi = 0;
+    char* apn_name;
+    char* pdp_address;
 
     if(!reinit){
         ret = lwgsm_init(esp_lwgsm_event_cb, 1);
@@ -499,8 +504,13 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
         lwgsm_delay(5000);
     } while((rssi == 0) && (ret == lwgsmOK));
 
-    ret = lwgsm_network_request_define_pdp_context(ESP_LWGSM_PDP_INDEX, LWGSM_PDP_TYPE_IP, ESP_LWGSM_APN_NAME, ESP_LWGSM_PDP_ADDRESS, LWGSM_APN_D_COMP_OFF,
+    ret = awsProvision_GetPdpSettings(&apn_name, &pdp_address);
+    if(ret != ESP_OK){ return ret; }
+
+    ret = lwgsm_network_request_define_pdp_context(ESP_LWGSM_PDP_INDEX, LWGSM_PDP_TYPE_IP, apn_name, pdp_address, LWGSM_APN_D_COMP_OFF,
                 LWGSM_APN_H_COMP_OFF, false, true);
+    vPortFree(apn_name);
+    vPortFree(pdp_address);
     if(ret != lwgsmOK){
         ESP_LOGE(TAG, "Cannot set APN credentials.\r\n");
         return ret;

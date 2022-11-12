@@ -2,8 +2,6 @@
 #define ESP_LWGSM_H
 
 #define ESP_LWGSM_PDP_INDEX       1
-#define ESP_LWGSM_APN_NAME        "orangeworld"
-#define ESP_LWGSM_PDP_ADDRESS     "0.0.0.0"
 
 #include "lwgsm/lwgsm.h"
 #include "esp_err.h"
