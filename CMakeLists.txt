@@ -34,6 +34,7 @@ set(SRC_FILES   ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${
                 # LIBRARY PORT
                 ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/system/${submodule}_ll_esp32.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/system/${submodule}_sys_freertos_os.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/system/${submodule}_provision_esp32.c
                 # SNIPPETS
                 ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/sim_manager.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/device_info.c
@@ -64,4 +65,5 @@ idf_component_register(
         "${HEADER_FILES}"
     PRIV_REQUIRES
         log
+        aws_provisioning
 )
