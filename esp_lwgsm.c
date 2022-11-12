@@ -54,9 +54,10 @@ typedef struct esp_lwgsm_mbedtls_net_context
 
 static const char* TAG = "ESP_LWGSM";
 
+static uint8_t initFlag = 0;
 static lwgsm_sim_state_t simState;
-lwgsm_netconn_p client;
-lwgsm_pbuf_p pbuf;
+static lwgsm_netconn_p client;
+static lwgsm_pbuf_p pbuf;
 
 /*******************************************************************************
  * 
@@ -464,7 +465,7 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     char* apn_name;
     char* pdp_address;
 
-    if(!reinit){
+    if(!reinit && !initFlag){
         ret = lwgsm_init(esp_lwgsm_event_cb, 1);
         if(evt_func != NULL){
             esp_lwgsm_user_cb = evt_func;
@@ -472,8 +473,12 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
             esp_lwgsm_user_cb = NULL;
         }
         if(ret != lwgsmOK){
+            initFlag = 0;
             ESP_LOGE(TAG, "Cannot initialize.\r\n");
             return ret;
+        }
+        else{
+            initFlag = 1;
         }
     }
     else{
