@@ -1,3 +1,14 @@
+/**
+ * @file esp_lwgsm.c
+ * @author Rafael de la Rosa Vidal (derosa.rafael@gmail.com)
+ * @brief API functions over LWGSM library adapted to SIM7080G
+ * @version 0.1
+ * @date 2022-12-17
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
+
 /* LWGSM includes */
 #include "lwgsm/lwgsm_netconn.h"
 #include "lwgsm/lwgsm_network_api.h"
@@ -56,7 +67,7 @@ static const char* TAG = "ESP_LWGSM";
 
 static uint8_t initFlag = 0;
 static lwgsm_sim_state_t simState;
-static lwgsm_netconn_p client;
+static lwgsm_netconn_p pClient;
 static lwgsm_pbuf_p pbuf;
 
 /*******************************************************************************
@@ -126,17 +137,17 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
     esp_err_t res;
     lwgsmr_t ret = lwgsmERR;
 
-    client = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_TCP);
+    pClient = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_TCP);
 
-    if (client != NULL) {
+    if (pClient != NULL) {
         ESP_LOGI(TAG, "Connecting to %s:%d", host, port);
         if(block){
-            ret = lwgsm_netconn_connect(client, host, port);
+            ret = lwgsm_netconn_connect(pClient, host, port);
             if(ret == lwgsmOK){
                 ESP_LOGI(TAG, "Connection success...");
             }
         }else{
-            ret = lwgsm_netconn_connect_async(client, host, port);
+            ret = lwgsm_netconn_connect_async(pClient, host, port);
             if(ret == lwgsmOK){
                 ESP_LOGD(TAG, "Connection request sended...");
             }
@@ -147,7 +158,7 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
         ESP_LOGE(TAG, "Error connecting server...");
     }
 
-    *fd = lwgsm_netconn_getconnnum(client);
+    *fd = lwgsm_netconn_getconnnum(pClient);
 
     res = ret == lwgsmOK ? ESP_OK : ESP_FAIL;
 
@@ -163,15 +174,15 @@ esp_err_t esp_lwgsm_close(int fd)
 {
     lwgsmr_t ret;
 
-    if(lwgsm_netconn_getconnnum(client) != fd){
+    if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
 
-    ret = lwgsm_netconn_close(client);
+    ret = lwgsm_netconn_close(pClient);
 
-    ret = lwgsm_netconn_delete(client);
+    ret = lwgsm_netconn_delete(pClient);
 
-    client = NULL;
+    pClient = NULL;
 
     ESP_LOGI(TAG, "Connection closed.");
 
@@ -192,14 +203,14 @@ int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags)
 
     (void) flags;
 
-    if(lwgsm_netconn_getconnnum(client) != fd){
+    if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
 
-    ret = lwgsm_netconn_write(client, data, datalen);
+    ret = lwgsm_netconn_write(pClient, data, datalen);
     CHECK_LWGSMOK(ret);
 
-    ret = lwgsm_netconn_flush(client);
+    ret = lwgsm_netconn_flush(pClient);
     CHECK_LWGSMOK(ret);
 
     return datalen;
@@ -225,12 +236,12 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
 
     ESP_LOGD(TAG, "\n ==> Queried: %d", datalen);
 
-    if(lwgsm_netconn_getconnnum(client) != fd){
+    if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
 
     if(pbuf == NULL){
-        ret = lwgsm_netconn_receive(client, &pbuf);
+        ret = lwgsm_netconn_receive(pClient, &pbuf);
         if(ret == lwgsmTIMEOUT){
             return 0;
         }
@@ -324,11 +335,11 @@ uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
     uint32_t attempts = 10;
     uint32_t interval = 0;
 
-    if(lwgsm_netconn_getconnnum(client) != fd){
+    if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }      
 
-    connected = lwgsm_netconn_is_connected(client);
+    connected = lwgsm_netconn_is_connected(pClient);
 
     if(timeout > 0){
         interval = timeout / attempts;
@@ -338,7 +349,7 @@ uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
     }
 
     while(!connected && (attempts > 0)){
-        connected = lwgsm_netconn_is_connected(client);
+        connected = lwgsm_netconn_is_connected(pClient);
         lwgsm_delay(interval);
         --attempts;
     }
@@ -376,11 +387,11 @@ esp_err_t esp_lwgsm_oper_scan()
  */
 int esp_lwgsm_set_recv_timeout(int fd, uint32_t timeout)
 {
-    if(lwgsm_netconn_getconnnum(client) != fd){
+    if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
 
-    lwgsm_netconn_set_receive_timeout(client, timeout);
+    lwgsm_netconn_set_receive_timeout(pClient, timeout);
 
     return 0;
 }
@@ -465,7 +476,7 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     char* apn_name;
     char* pdp_address;
 
-    if(!reinit && !initFlag){
+    if(!initFlag){
         ret = lwgsm_init(esp_lwgsm_event_cb, 1);
         if(evt_func != NULL){
             esp_lwgsm_user_cb = evt_func;
@@ -480,9 +491,11 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
         else{
             initFlag = 1;
         }
+    }else{
+        ESP_LOGW(TAG, "ESP_LWGSM library already initialized...");
     }
-    else{
-        
+    
+    if(reinit){
         ESP_LOGD(TAG, "Reset GSM module...");
         ret = esp_lwgsm_reset();
         if(ret != lwgsmOK){
