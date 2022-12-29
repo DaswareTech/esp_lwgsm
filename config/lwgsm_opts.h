@@ -82,8 +82,8 @@
 *   RDLR: Custom definitions
 */
 #define LWGSM_UART_NUM              UART_NUM_1
-#define LWGSM_UART_RX_BUF_SIZE      0x1000
-#define LWGSM_UART_TX_BUF_SIZE      0x1000
+#define LWGSM_UART_RX_BUF_SIZE      2048
+#define LWGSM_UART_TX_BUF_SIZE      2048
 #define LWGSM_UART_QUEUE_SIZE       50
 
 #define LWGSM_SIM7080               1
