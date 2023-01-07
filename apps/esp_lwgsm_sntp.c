@@ -204,6 +204,9 @@ esp_err_t esp_lwgsm_sntp_init(void)
     /* Set the default sync mode */
     pctx->sync_mode = ESP_LWGSM_SNTP_SYNC_MODE_SMOOTH;
 
+    /* Set the reset sync status */
+    pctx->sync_status = ESP_LWGSM_SNTP_SYNC_STATUS_RESET;
+
     /* Set notification callback to NULL */
     pctx->notify_cb = NULL;
 
