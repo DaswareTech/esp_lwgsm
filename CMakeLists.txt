@@ -47,6 +47,9 @@ set(SRC_FILES   ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${
                 # ${CMAKE_CURRENT_SOURCE_DIR}/snippets/call.c
                 # ${CMAKE_CURRENT_SOURCE_DIR}/snippets/sms_send_receive_thread.c
                 # ${CMAKE_CURRENT_SOURCE_DIR}/snippets/sms_send_receive.c
+                # CUSTOM APPS
+                ${CMAKE_CURRENT_SOURCE_DIR}/apps/esp_lwgsm_sntp.c
+                # MAIN
                 ${CMAKE_CURRENT_SOURCE_DIR}/esp_lwgsm.c
     )
 
@@ -66,4 +69,5 @@ idf_component_register(
     PRIV_REQUIRES
         log
         aws_provisioning
+        nvs_driver
 )

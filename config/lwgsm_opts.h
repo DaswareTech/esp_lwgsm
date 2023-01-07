@@ -98,5 +98,6 @@
 #define CLIENT_CERT_LABEL               "client.pem"
 #define CLIENT_KEY_LABEL                "client.key"
 
+#define LWGSM_SNTP_UPDATE_INTERVAL      43200   // 12-hours
 
 #endif /* LWGSM_HDR_OPTS_H */
