@@ -1,3 +1,14 @@
+/**
+ * @file esp_lwgsm.h
+ * @author Rafael de la Rosa (derosa.rafael@gmail.com)
+ * @brief API functions over LWGSM library adapted to SIM7080G
+ * @version 0.1
+ * @date 2023-01-08
+ * 
+ * @copyright Copyright (c) 2023
+ * 
+ */
+
 #ifndef ESP_LWGSM_H
 #define ESP_LWGSM_H
 

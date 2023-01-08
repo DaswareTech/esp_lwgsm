@@ -36,8 +36,9 @@
 #define ESP_LWGSM_SNTP_NAMESPACE          "Sntp"
 #define ESP_LWGSM_SNTP_HOSTNAME_KEY       "SNTP_HOST"
 #define ESP_LWGSM_SNTP_PORT_KEY           "SNTP_PORT"
+#define ESP_LWGSM_SNTP_TIMEZONE_KEY       "SNTP_TIMEZONE"
 
-#define ESP_LWGSM_SNTP_UPDATE_PERIOD_MS         6000   // 6 seconds
+#define ESP_LWGSM_SNTP_UPDATE_PERIOD_MS         1000   // 1 seconds
 #define ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS      ESP_LWGSM_SNTP_UPDATE_PERIOD_MS/portTICK_PERIOD_MS
 #define ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS       5000/portTICK_PERIOD_MS    // 500 milliseconds
 
@@ -140,6 +141,10 @@ typedef struct{
     esp_lwgsm_sntp_sync_status_t sync_status;
     esp_lwgsm_sntp_sync_time_cb_t notify_cb;
     TimerHandle_t timer;
+    struct{
+        uint8_t init : 1;
+    } flags;
+    uint16_t to_next_update;
 } esp_lwgsm_sntp_ctx_t;
 
 /*******************************************************************************
@@ -175,15 +180,25 @@ static void esp_lwgsm_timer_cb( TimerHandle_t xTimer );
 esp_err_t esp_lwgsm_sntp_init(void)
 {
     esp_err_t ret =  ESP_OK;
+    char* timezone;
     
     ESP_LOGD(TAG, "SNTP initialised\n");
 
-    // Set timezone to UTC
-    setenv("TZ", "UTC-0", 1);
+    if(pctx != NULL){
+        if(pctx->flags.init){
+            return ESP_OK;
+        }
+    }
+
+    // Set timezone
+    nvs_driver_get_string(ESP_LWGSM_SNTP_PARTITION, ESP_LWGSM_SNTP_NAMESPACE, ESP_LWGSM_SNTP_TIMEZONE_KEY, &timezone);
+    ESP_LOGI(TAG, "Setting timezone to %s", timezone);
+    setenv("TZ", timezone, 1);
     tzset();
 
     /* Allocate context struct */
     pctx = pvPortMalloc(sizeof(esp_lwgsm_sntp_ctx_t));
+    memset(pctx, 0, sizeof(esp_lwgsm_sntp_ctx_t));
 
     /* Get the SNTP hostname and port */
     ret = nvs_driver_get_string(ESP_LWGSM_SNTP_PARTITION,
@@ -210,12 +225,17 @@ esp_err_t esp_lwgsm_sntp_init(void)
     /* Set notification callback to NULL */
     pctx->notify_cb = NULL;
 
+    /* Set counter to next update */
+    pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
+
     /* Create the timer to update */
     pctx->timer = xTimerCreate("ESP_LWGSM_SNTP_TIMER",
                                ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS,
                                pdTRUE,
                                0,
                                esp_lwgsm_timer_cb);
+    
+    pctx->flags.init = true;
 
     return ret;
 
@@ -230,7 +250,6 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     esp_err_t ret = ESP_OK;
 
     if(pctx->hostname != NULL) { vPortFree(pctx->hostname); }
-    if(pctx != NULL) { vPortFree(pctx); }
     if(pctx->udp_pcb != NULL) { 
         res = lwgsm_netconn_delete(pctx->udp_pcb);
         if(res != lwgsmOK){
@@ -245,6 +264,8 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
             ESP_LOGE(TAG, "Error while the timer removing.");
         }
     }
+    pctx->flags.init = false;
+    if(pctx != NULL) { vPortFree(pctx); }
 
     return ret;
 }
@@ -253,6 +274,24 @@ esp_err_t esp_lwgsm_sntp_start(void)
 {
     /* Try request time from SNTP server */
     return esp_lwgsm_sntp_request();
+}
+
+esp_err_t esp_lwgsm_sntp_stop(void)
+{
+    esp_err_t ret = ESP_OK;
+
+    if(xTimerStop(pctx->timer, 1000/portTICK_PERIOD_MS) != pdPASS){
+        ret = ESP_ERR_TIMEOUT;
+        ESP_LOGE(TAG, "Not able to stop timer.");
+    }
+    if(xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS) != pdPASS){
+        ret = ESP_ERR_TIMEOUT;
+        ESP_LOGE(TAG, "Not able to reset timer.");
+    }
+
+    pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
+
+    return ret;
 }
 
 void esp_lwgsm_sntp_set_system_time(uint32_t sec, uint32_t us)
@@ -487,14 +526,12 @@ static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
 
 static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
 {
-    static uint16_t to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
-
-    if((xTimerGetPeriod(pctx->timer) == ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS) && (to_next_update > ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000) ){
-        to_next_update -= ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000;
+    if((xTimerGetPeriod(pctx->timer) == ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS) && (pctx->to_next_update > ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000) ){
+        pctx->to_next_update -= ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000;
     }else{
-        to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
+        pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
         if(xTimerStop(pctx->timer, 1000/portTICK_PERIOD_MS) != pdPASS){
-                ESP_LOGE(TAG, "Error while stop the timer");
+            ESP_LOGE(TAG, "Error while stop the timer");
         }
         esp_lwgsm_sntp_request();
     }
