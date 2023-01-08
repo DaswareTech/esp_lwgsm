@@ -21,11 +21,19 @@
  * 
 *******************************************************************************/
 
+/**
+ * @brief The synchronization mode
+ * 
+ */
 typedef enum {
     ESP_LWGSM_SNTP_SYNC_MODE_IMMED,   /*!< Update system time immediately when receiving a response from the SNTP server. */
     ESP_LWGSM_SNTP_SYNC_MODE_SMOOTH,  /*!< Smooth time updating. Time error is gradually reduced using adjtime function. If the difference between SNTP response time and system time is large (more than 35 minutes) then update immediately. */
 } esp_lwgsm_sntp_sync_mode_t;
 
+/**
+ * @brief The SNTP service synchronization status
+ * 
+ */
 typedef enum {
     ESP_LWGSM_SNTP_SYNC_STATUS_RESET,         // Reset status.
     ESP_LWGSM_SNTP_SYNC_STATUS_COMPLETED,     // Time is synchronized.

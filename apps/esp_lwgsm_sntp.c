@@ -177,6 +177,11 @@ static void esp_lwgsm_timer_cb( TimerHandle_t xTimer );
  * 
 *******************************************************************************/
 
+/**
+ * @brief Initialize the SNTP service 
+ * 
+ * @return ESP_OK if success, esp_err_t member otherwise 
+ */
 esp_err_t esp_lwgsm_sntp_init(void)
 {
     esp_err_t ret =  ESP_OK;
@@ -244,6 +249,11 @@ esp_err_t esp_lwgsm_sntp_init(void)
         return ret;
 }
 
+/**
+ * @brief Deinitialize the SNTP service
+ * 
+ * @return ESP_OK if success, esp_err_t member otherwise  
+ */
 esp_err_t esp_lwgsm_sntp_deinit(void)
 {
     lwgsmr_t res = lwgsmOK;
@@ -270,12 +280,22 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     return ret;
 }
 
+/**
+ * @brief Start the SNTP synchronization service
+ * 
+ * @return ESP_OK if success, esp_err_t member otherwise  
+ */
 esp_err_t esp_lwgsm_sntp_start(void)
 {
     /* Try request time from SNTP server */
     return esp_lwgsm_sntp_request();
 }
 
+/**
+ * @brief Stop the SNTP synchronization service
+ * 
+ * @return ESP_OK if success, esp_err_t member otherwise  
+ */
 esp_err_t esp_lwgsm_sntp_stop(void)
 {
     esp_err_t ret = ESP_OK;
@@ -294,12 +314,24 @@ esp_err_t esp_lwgsm_sntp_stop(void)
     return ret;
 }
 
+/**
+ * @brief Set the system time from seconds and microseconds from 1970
+ * 
+ * @param sec Seconds from 1970
+ * @param us Fraction of seconds in microseconds
+ */
 void esp_lwgsm_sntp_set_system_time(uint32_t sec, uint32_t us)
 {
     struct timeval tv = { .tv_sec = sec, .tv_usec = us };
     esp_lwgsm_sntp_sync_time(&tv);
 }
 
+/**
+ * @brief Synchronize the system time
+ * 
+ * @param timeval structure containing seconds and fractions of seconds from 1970
+ * 
+ */
 void __attribute__((weak)) esp_lwgsm_sntp_sync_time(struct timeval *tv)
 {
     if (pctx->sync_mode == ESP_LWGSM_SNTP_SYNC_MODE_IMMED) {
@@ -326,21 +358,41 @@ void __attribute__((weak)) esp_lwgsm_sntp_sync_time(struct timeval *tv)
     }
 }
 
+/**
+ * @brief Set the synchronization mode
+ * 
+ * @param sync_mode IMMED or SMOOTH mode
+ */
 void esp_lwgsm_sntp_set_sync_mode(esp_lwgsm_sntp_sync_mode_t sync_mode)
 {
     pctx->sync_mode = sync_mode;
 }
 
+/**
+ * @brief Get the current sync mode
+ * 
+ * @return IMMED or SMOOTH 
+ */
 esp_lwgsm_sntp_sync_mode_t esp_lwgsm_sntp_get_sync_mode(void)
 {
     return pctx->sync_mode;
 }
 
+/**
+ * @brief Set the time synchronization notification callback
+ * 
+ * @param callback The callback to use for notification
+ */
 void esp_lwgsm_sntp_set_notification_cb(esp_lwgsm_sntp_sync_time_cb_t callback)
 {
     pctx->notify_cb = callback;
 }
 
+/**
+ * @brief Get the time synchronization status
+ * 
+ * @return RESET, COMPLETE or IN PROGRESS 
+ */
 esp_lwgsm_sntp_sync_status_t esp_lwgsm_sntp_get_sync_status(void)
 {
     esp_lwgsm_sntp_sync_status_t ret_sync_status = ESP_LWGSM_SNTP_SYNC_STATUS_RESET;
@@ -368,6 +420,11 @@ esp_lwgsm_sntp_sync_status_t esp_lwgsm_sntp_get_sync_status(void)
  * 
 *******************************************************************************/
 
+/**
+ * @brief Request time to SNTP server
+ * 
+ * @return ESP_OK if success, esp_err_t member otherwise   
+ */
 static esp_err_t esp_lwgsm_sntp_request(void)
 {
     esp_err_t ret = ESP_OK;
@@ -421,6 +478,12 @@ static esp_err_t esp_lwgsm_sntp_request(void)
         return ret;
 }
 
+/**
+ * @brief Receive response from SNTP server
+ * 
+ * @param msg Data structure to fill with the SNTP server response
+ * @return ESP_OK if success, esp_err_t member otherwise   
+ */
 static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg)
 {
     esp_err_t ret = ESP_OK;
@@ -452,6 +515,12 @@ static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg)
         return ret;
 }
 
+/**
+ * @brief Process the SNTP data structure received from SNTP server
+ * 
+ * @param msg The data received from the SNTP server
+ * @return ESP_OK if success, esp_err_t member otherwise  
+ */
 static esp_err_t esp_lwgsm_sntp_process(esp_lwgsm_sntp_packet_t* msg)
 {
     esp_err_t ret = ESP_OK;
@@ -497,6 +566,11 @@ static esp_err_t esp_lwgsm_sntp_process(esp_lwgsm_sntp_packet_t* msg)
         return ret;
 }
 
+/**
+ * @brief Process the time in the SNTP server response
+ * 
+ * @param msg The data received from the SNTP server
+ */
 static void esp_lwgsm_sntp_process_timestamps(esp_lwgsm_sntp_packet_t* msg)
 {
     int32_t sec;
@@ -508,11 +582,22 @@ static void esp_lwgsm_sntp_process_timestamps(esp_lwgsm_sntp_packet_t* msg)
     ESP_LWGSM_SNTP_SET_SYSTEM_TIME_NTP(sec, frac);
 }
 
+/**
+ * @brief Set the current synchronization status
+ * 
+ * @param sync_status The new synchronization status
+ */
 static inline void esp_lwgsm_sntp_set_sync_status(esp_lwgsm_sntp_sync_status_t sync_status)
 {
     pctx->sync_status = sync_status;
 }
 
+/**
+ * @brief Swap the byte order of an uin32_t value
+ * 
+ * @param value The value to swap
+ * @return The swapped value
+ */
 static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
 {
     return ((value >> 24) & 0x000000FF) | ((value >> 8) & 0x0000FF00) | ((value << 8) & 0x00FF0000) | ((value << 24) & 0xFF000000);
@@ -524,6 +609,11 @@ static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
  * 
 *******************************************************************************/
 
+/**
+ * @brief The callback used to trigger a SNTP request
+ * 
+ * @param xTimer The timer which triggers the callback
+ */
 static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
 {
     if((xTimerGetPeriod(pctx->timer) == ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS) && (pctx->to_next_update > ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000) ){
