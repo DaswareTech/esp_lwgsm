@@ -522,7 +522,7 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
         lwgsm_delay(5000);
     } while((rssi == 0) && (ret == lwgsmOK));
 
-    ret = awsProvision_GetPdpSettings(&apn_name, &pdp_address);
+    ret = aws_prov_get_gsm_settings(&apn_name, &pdp_address);
     if(ret != ESP_OK){ return ret; }
 
     ret = lwgsm_network_request_define_pdp_context(ESP_LWGSM_PDP_INDEX, LWGSM_PDP_TYPE_IP, apn_name, pdp_address, LWGSM_APN_D_COMP_OFF,
