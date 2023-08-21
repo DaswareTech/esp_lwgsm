@@ -17,7 +17,7 @@
 #include "esp_log.h"
 
 /* AWS provisioning */
-#include "nvs_driver.h"
+#include "aws_provisioning.h"
 
 /* FreeRTOS includes */
 #include "freertos/FreeRTOS.h"
@@ -31,12 +31,6 @@
  * Defines
  * 
 *******************************************************************************/
-
-#define ESP_LWGSM_SNTP_PARTITION          "DebosSabID"
-#define ESP_LWGSM_SNTP_NAMESPACE          "Sntp"
-#define ESP_LWGSM_SNTP_HOSTNAME_KEY       "SNTP_HOST"
-#define ESP_LWGSM_SNTP_PORT_KEY           "SNTP_PORT"
-#define ESP_LWGSM_SNTP_TIMEZONE_KEY       "SNTP_TIMEZONE"
 
 #define ESP_LWGSM_SNTP_UPDATE_PERIOD_MS         1000   // 1 seconds
 #define ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS      ESP_LWGSM_SNTP_UPDATE_PERIOD_MS/portTICK_PERIOD_MS
@@ -195,8 +189,13 @@ esp_err_t esp_lwgsm_sntp_init(void)
         }
     }
 
+    // Get metadata from flash
+    ret = aws_prov_get_sntp_settings(&(pctx->hostname), &(pctx->port), &timezone);
+    if(ret != ESP_OK){
+        goto clean;
+    }
+
     // Set timezone
-    nvs_driver_get_string(ESP_LWGSM_SNTP_PARTITION, ESP_LWGSM_SNTP_NAMESPACE, ESP_LWGSM_SNTP_TIMEZONE_KEY, &timezone);
     ESP_LOGI(TAG, "Setting timezone to %s", timezone);
     setenv("TZ", timezone, 1);
     tzset();
@@ -204,18 +203,6 @@ esp_err_t esp_lwgsm_sntp_init(void)
     /* Allocate context struct */
     pctx = pvPortMalloc(sizeof(esp_lwgsm_sntp_ctx_t));
     memset(pctx, 0, sizeof(esp_lwgsm_sntp_ctx_t));
-
-    /* Get the SNTP hostname and port */
-    ret = nvs_driver_get_string(ESP_LWGSM_SNTP_PARTITION,
-                                ESP_LWGSM_SNTP_NAMESPACE,
-                                ESP_LWGSM_SNTP_HOSTNAME_KEY,
-                                &(pctx->hostname));
-    if(ret != ESP_OK){ goto clean; }
-    ret = nvs_driver_get_u16(ESP_LWGSM_SNTP_PARTITION,
-                             ESP_LWGSM_SNTP_NAMESPACE,
-                             ESP_LWGSM_SNTP_PORT_KEY,
-                             &(pctx->port));
-    if(ret != ESP_OK){ goto clean; }
 
     /* Get a LWGSM connection handler */
     pctx->udp_pcb = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_UDP);

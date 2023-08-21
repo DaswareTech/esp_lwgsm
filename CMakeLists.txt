@@ -69,5 +69,4 @@ idf_component_register(
     PRIV_REQUIRES
         log
         aws_provisioning
-        nvs_driver
 )
