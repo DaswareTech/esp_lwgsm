@@ -53,7 +53,7 @@
 // #define LWGSM_RESET_PIN             18
 
 /* LWGSM DEBUGGING LEVEL */
-#define LWGSM_CFG_DBG               LWGSM_DBG_ON
+#define LWGSM_CFG_DBG               LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_LVL_MIN       LWGSM_DBG_LVL_ALL
 #define LWGSM_CFG_DBG_TYPES_ON      LWGSM_DBG_TYPE_ALL
 
@@ -84,7 +84,7 @@
 #define LWGSM_UART_NUM              UART_NUM_1
 #define LWGSM_UART_RX_BUF_SIZE      2048
 #define LWGSM_UART_TX_BUF_SIZE      2048
-#define LWGSM_UART_QUEUE_SIZE       50
+#define LWGSM_UART_QUEUE_SIZE       10
 
 #define LWGSM_SIM7080               1
 
