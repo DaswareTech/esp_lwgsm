@@ -38,10 +38,10 @@ if(CONFIG_ESP_TLS_USING_LWGSM)
                     ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/system/${submodule}_provision_esp32.c
                     # SNIPPETS
                     ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/sim_manager.c
-                    ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/device_info.c
-                    ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/netconn_client.c
+                    # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/device_info.c
+                    # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/netconn_client.c
                     ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/network_utils.c
-                    ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/client.c
+                    # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/client.c
                     # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/mqtt_client_api.c
                     ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/operator_utils.c
                     # ${CMAKE_CURRENT_SOURCE_DIR}/snippets/call_sms.c

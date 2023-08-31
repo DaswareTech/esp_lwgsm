@@ -43,6 +43,7 @@
 
 #define LWGSM_CFG_AT_ECHO                     0
 #define LWGSM_CFG_INPUT_USE_PROCESS           1
+#define LWGSM_CFG_MEM_CUSTOM                  1
 
 /* Enable network, conn and netconn APIs */
 #define LWGSM_CFG_NETWORK                     1
