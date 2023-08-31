@@ -56,6 +56,7 @@ typedef void (*esp_lwgsm_sntp_sync_time_cb_t) (struct timeval *tv);
 esp_err_t esp_lwgsm_sntp_init(void);
 esp_err_t esp_lwgsm_sntp_deinit(void);
 esp_err_t esp_lwgsm_sntp_start(void);
+esp_err_t esp_lwgsm_sntp_stop(void);
 void esp_lwgsm_sntp_set_system_time(uint32_t sec, uint32_t us);
 void esp_lwgsm_sntp_sync_time(struct timeval *tv);
 void esp_lwgsm_sntp_set_sync_mode(esp_lwgsm_sntp_sync_mode_t sync_mode);
