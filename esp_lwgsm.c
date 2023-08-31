@@ -396,6 +396,26 @@ int esp_lwgsm_set_recv_timeout(int fd, uint32_t timeout)
     return 0;
 }
 
+/**
+ * @brief Get the RSSI 
+ * 
+ * @param rssi Pointer to return RSSI value
+ * @return ESP_OK if success, ESP_FAIL otherwise 
+ */
+esp_err_t esp_lwgsm_get_rssi(int16_t* rssi)
+{
+    lwgsmr_t err;
+    esp_err_t ret = ESP_OK;
+
+    err = lwgsm_network_rssi(rssi, NULL, NULL, pdTRUE);
+
+    if(err != lwgsmOK){
+        ret = ESP_FAIL;
+    }
+
+    return ret;
+}
+
 /*******************************************************************************
  * 
  * Private function bodies
