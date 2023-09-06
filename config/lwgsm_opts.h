@@ -78,6 +78,7 @@
 /* Time in milliseconds for sending first AT command after reset */
 #define LWGSM_CFG_RESET_DELAY_DEFAULT       5000
 #define LWGSM_CFG_RESET_ON_INIT             1
+#define LWGSM_CFG_WAIT_AFTER_RESET          CONFIG_ESP_LWGSM_WAIT_AFTER_RESET_MODULE
 
 /*
 *   RDLR: Custom definitions

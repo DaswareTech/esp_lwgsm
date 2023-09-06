@@ -17,4 +17,9 @@ menu "ESP LWGSM"
             int "UART TX buffer size"
             default 2048
     endmenu
+    menu "Module"
+        config ESP_LWGSM_WAIT_AFTER_RESET_MODULE
+            int "Time in milliseconds to wait after the reset AT command is sent."
+            default 10000
+    endmenu
 endmenu
