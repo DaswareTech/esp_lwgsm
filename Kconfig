@@ -1,0 +1,20 @@
+menu "ESP LWGSM"
+    menu "Serial port"
+        config ESP_LWGSM_UART_PORT_NUM
+            int "UART number."
+            default 1
+            range 0 2
+        config ESP_LWGSM_UART_TX_PIN
+            int "UART TX pin"
+            default 26
+        config ESP_LWGSM_UART_RX_PIN
+            int "UART TX pin"
+            default 32
+        config ESP_LWGSM_UART_RX_BUFFER_SIZE
+            int "UART RX buffer size"
+            default 2048
+        config ESP_LWGSM_UART_TX_BUFFER_SIZE
+            int "UART TX buffer size"
+            default 2048
+    endmenu
+endmenu
