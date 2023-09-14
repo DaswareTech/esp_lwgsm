@@ -189,6 +189,10 @@ esp_err_t esp_lwgsm_sntp_init(void)
         }
     }
 
+    /* Allocate context struct */
+    pctx = pvPortMalloc(sizeof(esp_lwgsm_sntp_ctx_t));
+    memset(pctx, 0, sizeof(esp_lwgsm_sntp_ctx_t));
+
     // Get metadata from flash
     ret = aws_prov_get_sntp_settings(&(pctx->hostname), &(pctx->port), &timezone);
     if(ret != ESP_OK){
@@ -199,10 +203,6 @@ esp_err_t esp_lwgsm_sntp_init(void)
     ESP_LOGI(TAG, "Setting timezone to %s", timezone);
     setenv("TZ", timezone, 1);
     tzset();
-
-    /* Allocate context struct */
-    pctx = pvPortMalloc(sizeof(esp_lwgsm_sntp_ctx_t));
-    memset(pctx, 0, sizeof(esp_lwgsm_sntp_ctx_t));
 
     /* Get a LWGSM connection handler */
     pctx->udp_pcb = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_UDP);
