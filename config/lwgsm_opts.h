@@ -51,7 +51,7 @@
 #define LWGSM_CFG_NETCONN                     1
 
 /* Enable hardware reset */
-// #define LWGSM_RESET_PIN             18
+#define LWGSM_RESET_PIN             19
 
 /* LWGSM DEBUGGING LEVEL */
 #define LWGSM_CFG_DBG               LWGSM_DBG_OFF
@@ -92,7 +92,7 @@
 
 #define LWGSM_SIM7080               1
 
-#define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_CAT_M
+#define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_BOTH
 
 #define LWGSM_PRIMARY_DNS_SERVER        "8.8.8.8"           // Google Primary DNS server
 #define LWGSM_SECONDARY_DNS_SERVER      "8.8.4.4"           // Google Secondary DNS server

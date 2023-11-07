@@ -140,11 +140,11 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
     pClient = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_TCP);
 
     if (pClient != NULL) {
-        ESP_LOGI(TAG, "Connecting to %s:%d", host, port);
+        ESP_LOGD(TAG, "Connecting to %s:%d", host, port);
         if(block){
             ret = lwgsm_netconn_connect(pClient, host, port);
             if(ret == lwgsmOK){
-                ESP_LOGI(TAG, "Connection success...");
+                ESP_LOGD(TAG, "TCP connection creation success...");
             }
         }else{
             ret = lwgsm_netconn_connect_async(pClient, host, port);
