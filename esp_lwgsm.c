@@ -144,18 +144,22 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
         if(block){
             ret = lwgsm_netconn_connect(pClient, host, port);
             if(ret == lwgsmOK){
-                ESP_LOGD(TAG, "TCP connection creation success...");
+                ESP_LOGD(TAG, "TCP connection creation success.");
+            }else{
+                ESP_LOGE(TAG, "TCP connection creation error. Code %d", ret);
             }
         }else{
             ret = lwgsm_netconn_connect_async(pClient, host, port);
             if(ret == lwgsmOK){
-                ESP_LOGD(TAG, "Connection request sended...");
+                ESP_LOGD(TAG, "Connection request sended.");
+            }else{
+                ESP_LOGE(TAG, "Connection request sending error. Code %d", ret);
             }
         }
     }
     
-    if(ret == lwgsmERR){
-        ESP_LOGE(TAG, "Error connecting server...");
+    if(ret != lwgsmOK){
+        ESP_LOGE(TAG, "Error connecting server. Code %d", ret);
     }
 
     *fd = lwgsm_netconn_getconnnum(pClient);
@@ -174,6 +178,8 @@ esp_err_t esp_lwgsm_close(int fd)
 {
     lwgsmr_t ret;
 
+    ESP_LOGI(TAG, "On connection closing...");
+
     if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
@@ -184,7 +190,7 @@ esp_err_t esp_lwgsm_close(int fd)
 
     pClient = NULL;
 
-    ESP_LOGI(TAG, "Connection closed.");
+    ESP_LOGI(TAG, "Connection closed. (%d)", ret);
 
     return ret == lwgsmOK ? 0 : -1;
 }
@@ -517,6 +523,7 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     
     if(reinit){
         ESP_LOGD(TAG, "Reset GSM module...");
+        lwgsm_reset_hw(1000, 1);
         ret = esp_lwgsm_reset();
         if(ret != lwgsmOK){
             ESP_LOGE(TAG, "Cannot reset.\r\n");
