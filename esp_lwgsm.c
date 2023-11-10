@@ -213,12 +213,15 @@ int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags)
         return -1;
     }
 
+    if(!lwgsm_netconn_is_connected(pClient)){
+        return -1;
+    }
+
     ret = lwgsm_netconn_write(pClient, data, datalen);
     CHECK_LWGSMOK(ret);
 
     ret = lwgsm_netconn_flush(pClient);
     CHECK_LWGSMOK(ret);
-
     return datalen;
 }
 
@@ -241,6 +244,10 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     (void) flags;
 
     if(lwgsm_netconn_getconnnum(pClient) != fd){
+        return -1;
+    }
+
+    if(!lwgsm_netconn_is_connected(pClient)){
         return -1;
     }
 
