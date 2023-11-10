@@ -54,15 +54,15 @@
 #define LWGSM_RESET_PIN             19
 
 /* LWGSM DEBUGGING LEVEL */
-#define LWGSM_CFG_DBG               LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_LVL_MIN       LWGSM_DBG_LVL_ALL
+#define LWGSM_CFG_DBG               LWGSM_DBG_ON
+#define LWGSM_CFG_DBG_LVL_MIN       LWGSM_DBG_LVL_WARNING
 #define LWGSM_CFG_DBG_TYPES_ON      LWGSM_DBG_TYPE_ALL
 
 #define LWGSM_CFG_DBG_INIT          LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_THREAD        LWGSM_DBG_OFF
+#define LWGSM_CFG_DBG_THREAD        LWGSM_DBG_ON
 #define LWGSM_CFG_DBG_INPUT         LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_ASSERT        LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_NETCONN       LWGSM_DBG_OFF
+#define LWGSM_CFG_DBG_ASSERT        LWGSM_DBG_ON
+#define LWGSM_CFG_DBG_NETCONN       LWGSM_DBG_ON
 #define LWGSM_CFG_DBG_CONN          LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_IPD           LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_PBUF          LWGSM_DBG_OFF
@@ -72,7 +72,7 @@
 
 #include "esp_log.h"
 #define LWGSM_CFG_DBG_OUT(fmt, ...)         do {                                      \
-                                                ESP_LOGI("LWGSM_DBG_OUT", fmt, ##__VA_ARGS__);      \
+                                                ESP_LOGW("LWGSM_DBG_OUT", fmt, ##__VA_ARGS__);      \
                                             } while (0)
 
 /* Time in milliseconds for sending first AT command after reset */
@@ -90,7 +90,8 @@
 #define LWGSM_UART_RX_BUF_SIZE      CONFIG_ESP_LWGSM_UART_RX_BUFFER_SIZE
 #define LWGSM_UART_QUEUE_SIZE       10
 
-#define LWGSM_SIM7080               1
+#define LWGSM_SIM7080                   1
+#define LWGSM_SIM7080_TCP_RECV_MANUAL   1
 
 #define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_BOTH
 

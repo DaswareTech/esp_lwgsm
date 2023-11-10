@@ -208,6 +208,9 @@ esp_err_t esp_lwgsm_sntp_init(void)
     pctx->udp_pcb = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_UDP);
     if(pctx->udp_pcb == NULL){ goto clean; }
 
+    /* Set receive timeout */
+    lwgsm_netconn_set_receive_timeout(pctx->udp_pcb, 20000);
+
     /* Set the default sync mode */
     pctx->sync_mode = ESP_LWGSM_SNTP_SYNC_MODE_SMOOTH;
 
@@ -456,8 +459,9 @@ static esp_err_t esp_lwgsm_sntp_request(void)
     }
 
     clean:
-        if(lwgsm_netconn_close(pctx->udp_pcb) != lwgsmOK){
-            ESP_LOGE(TAG, "Error closing the connection while clean.");
+        res = lwgsm_netconn_close(pctx->udp_pcb);
+        if(res != lwgsmOK){
+            ESP_LOGE(TAG, "Error closing the connection while clean. (%d)", res);
         }
         if(ntp_msg != NULL){
             vPortFree(ntp_msg);
@@ -485,7 +489,7 @@ static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg)
     }
 
     do{
-        res = lwgsm_netconn_receive(pctx->udp_pcb, &pbuf);
+        res = lwgsm_netconn_receive_manual(pctx->udp_pcb, &pbuf, ESP_LWGSM_SNTP_MSG_LEN - offset);
         if(res != lwgsmOK){
             ret = ESP_FAIL;
             goto clean;

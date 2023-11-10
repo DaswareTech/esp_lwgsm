@@ -240,14 +240,12 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
 
     (void) flags;
 
-    ESP_LOGD(TAG, "\n ==> Queried: %d", datalen);
-
     if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
 
     if(pbuf == NULL){
-        ret = lwgsm_netconn_receive(pClient, &pbuf);
+        ret = lwgsm_netconn_receive_manual(pClient, &pbuf, datalen);
         if(ret == lwgsmTIMEOUT){
             return 0;
         }
@@ -255,7 +253,6 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
             return -1;
         }
         pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
-        ESP_LOGD(TAG, "Pbuf_tot_len = %d", pbuf_tot_len);
     }
 
     if(pbuf != NULL){
@@ -270,10 +267,8 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
         }
     }
 
-    ESP_LOGD(TAG, "==> Recv: %d/%d", data_recv, datalen);
     if(data_recv != to_copy){
-        ESP_LOGD(TAG,   "The number of bytes copied from pbuf differs from"
-                        "the data queried (recv: %d - query: %d) ", data_recv, to_copy);
+        ESP_LOGD(TAG,   "RECV: %d - QUERY: %d) ", data_recv, to_copy);
     }
 
     return data_recv;
@@ -522,7 +517,7 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     }
     
     if(reinit){
-        ESP_LOGD(TAG, "Reset GSM module...");
+        ESP_LOGI(TAG, "Reset GSM module...");
         lwgsm_reset_hw(1000, 1);
         ret = esp_lwgsm_reset();
         if(ret != lwgsmOK){
