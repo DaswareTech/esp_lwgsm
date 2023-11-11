@@ -176,7 +176,7 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
  */
 esp_err_t esp_lwgsm_close(int fd)
 {
-    lwgsmr_t ret;
+    lwgsmr_t ret1, ret2;
 
     ESP_LOGI(TAG, "On connection closing...");
 
@@ -184,15 +184,22 @@ esp_err_t esp_lwgsm_close(int fd)
         return -1;
     }
 
-    ret = lwgsm_netconn_close(pClient);
+    ret1 = lwgsm_netconn_close(pClient);
 
-    ret = lwgsm_netconn_delete(pClient);
+    if(ret1 != lwgsmOK){
+        ESP_LOGE(TAG, "Connection close error. Code %d", ret1);
+    }else{
+        ESP_LOGI(TAG, "Connection closed.");
+    }
+
+    ret2 = lwgsm_netconn_delete(pClient);
+    if(ret2 != lwgsmOK){
+        ESP_LOGE(TAG, "Connection delete error. Code %d", ret2);
+    }
 
     pClient = NULL;
 
-    ESP_LOGI(TAG, "Connection closed. (%d)", ret);
-
-    return ret == lwgsmOK ? 0 : -1;
+    return (ret1 == lwgsmOK && ret2 == lwgsmOK) ? 0 : -1;
 }
 
 /**
