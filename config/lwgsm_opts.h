@@ -51,7 +51,7 @@
 #define LWGSM_CFG_NETCONN                     1
 
 /* Enable hardware reset */
-#define LWGSM_RESET_PIN             19
+// #define LWGSM_RESET_PIN             19
 
 /* LWGSM DEBUGGING LEVEL */
 #define LWGSM_CFG_DBG               LWGSM_DBG_ON
