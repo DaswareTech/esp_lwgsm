@@ -41,7 +41,6 @@
 #define ESP_LWGSM_MBEDTLS_ERR_SSL_WANT_READ         -0x6900
 
 #define CHECK_LWGSMOK(x)    do{ if((x) != lwgsmOK){ return -1; }} while(0)
-#define CHECK_REPORT_USAGE(x, evt)      do{ if(x != NULL) {ESP_LOGW(TAG, "Report busy. Ignoring event %d", evt); return lwgsmPARERR; } }while(0)
 
 /*******************************************************************************
  * 
@@ -441,7 +440,7 @@ esp_err_t esp_lwgsm_get_rssi(int16_t* rssi)
  */
 static lwgsmr_t esp_lwgsm_event_cb(lwgsm_evt_t* evt)
 {
-    static char* report = NULL;
+    char* report = NULL;
 
     switch (lwgsm_evt_get_type(evt)) {
         case LWGSM_EVT_INIT_FINISH: 
@@ -457,20 +456,16 @@ static lwgsmr_t esp_lwgsm_event_cb(lwgsm_evt_t* evt)
             ESP_LOGW(TAG, "Operation timeout.");
             break;
         case LWGSM_EVT_NETWORK_REG_CHANGED:
-            CHECK_REPORT_USAGE(report, lwgsm_evt_get_type(evt));
             network_utils_process_reg_change(evt, &report);
             if(esp_lwgsm_user_cb != NULL) { esp_lwgsm_user_cb(evt); }
             break;
         case LWGSM_EVT_NETWORK_OPERATOR_CURRENT:
-            CHECK_REPORT_USAGE(report, lwgsm_evt_get_type(evt));
             network_utils_process_curr_operator(evt, &report);
             break;
         case LWGSM_EVT_SIGNAL_STRENGTH:
-            CHECK_REPORT_USAGE(report, lwgsm_evt_get_type(evt));
             network_utils_process_rssi(evt, &report);
             break;
         case LWGSM_EVT_SIM_STATE_CHANGED:
-            CHECK_REPORT_USAGE(report, lwgsm_evt_get_type(evt));
             process_sim_evt(evt, &report);
             simState = evt->evt.cpin.state;
             if(esp_lwgsm_user_cb != NULL) { esp_lwgsm_user_cb(evt); }
