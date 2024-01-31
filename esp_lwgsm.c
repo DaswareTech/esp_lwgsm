@@ -105,7 +105,7 @@ esp_err_t esp_lwgsm_reinit()
  * 
  * @return esp_err_t ESP_OK if success, ESP_FAIL otherwise
  */
-esp_err_t esp_lwgsm_reset()
+esp_err_t esp_lwgsm_reset_sw()
 {
     lwgsmr_t ret = lwgsmOK;
 
@@ -114,7 +114,11 @@ esp_err_t esp_lwgsm_reset()
     }
 
     if(ret == lwgsmOK){
-        ret = lwgsm_reset_with_delay(LWGSM_CFG_RESET_DELAY_DEFAULT, NULL, NULL, 1);
+        ret = lwgsm_reset(NULL, NULL, 1);
+        do{
+            ret = lwgsm_check_at(1);
+        }while(ret != lwgsmOK);
+        ret = lwgsm_config_module(NULL, NULL, 1);
     }
 
     return ret == lwgsmOK ? ESP_OK : ESP_FAIL;
@@ -247,10 +251,12 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     (void) flags;
 
     if(lwgsm_netconn_getconnnum(pClient) != fd){
+        ESP_LOGE(TAG, "Error getting the connection number.");
         return -1;
     }
 
     if(!lwgsm_netconn_is_connected(pClient)){
+        ESP_LOGE(TAG, "The client is disconnected.");
         return -1;
     }
 
@@ -260,6 +266,7 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
             return 0;
         }
         else if(ret != lwgsmOK){
+            ESP_LOGE(TAG, "lwgsm_netconn_receive_manual returns with code(%d).", ret);
             return -1;
         }
         pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
@@ -280,6 +287,8 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     if(data_recv != to_copy){
         ESP_LOGD(TAG,   "RECV: %d - QUERY: %d) ", data_recv, to_copy);
     }
+
+    ESP_LOGD(TAG, "Returned %d / %d", data_recv, datalen);
 
     return data_recv;
 }
@@ -530,7 +539,7 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     if(reinit){
         ESP_LOGI(TAG, "Reset GSM module...");
         lwgsm_reset_hw(1000, 1);
-        ret = esp_lwgsm_reset();
+        ret = esp_lwgsm_reset_sw();
         if(ret != lwgsmOK){
             ESP_LOGE(TAG, "Cannot reset.\r\n");
             return ret;

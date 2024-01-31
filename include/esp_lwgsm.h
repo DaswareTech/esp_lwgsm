@@ -19,7 +19,7 @@
 
 esp_err_t esp_lwgsm_init(lwgsm_evt_fn evt_func);
 esp_err_t esp_lwgsm_reinit();
-esp_err_t esp_lwgsm_reset();
+esp_err_t esp_lwgsm_reset_sw();
 esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block);
 esp_err_t esp_lwgsm_close(int fd);
 int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags);

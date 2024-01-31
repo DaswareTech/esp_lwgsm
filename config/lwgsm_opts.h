@@ -59,10 +59,10 @@
 #define LWGSM_CFG_DBG_TYPES_ON      LWGSM_DBG_TYPE_ALL
 
 #define LWGSM_CFG_DBG_INIT          LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_THREAD        LWGSM_DBG_ON
-#define LWGSM_CFG_DBG_INPUT         LWGSM_DBG_ON
+#define LWGSM_CFG_DBG_THREAD        LWGSM_DBG_OFF
+#define LWGSM_CFG_DBG_INPUT         LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_ASSERT        LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_NETCONN       LWGSM_DBG_ON
+#define LWGSM_CFG_DBG_NETCONN       LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_CONN          LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_IPD           LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_PBUF          LWGSM_DBG_OFF
@@ -76,7 +76,7 @@
                                             } while (0)
 
 /* Time in milliseconds for sending first AT command after reset */
-#define LWGSM_CFG_RESET_DELAY_DEFAULT       5000
+#define LWGSM_CFG_RESET_DELAY_DEFAULT       1000
 #define LWGSM_CFG_RESET_ON_INIT             1
 #define LWGSM_CFG_WAIT_AFTER_RESET          CONFIG_ESP_LWGSM_WAIT_AFTER_RESET_MODULE
 
