@@ -420,6 +420,7 @@ static esp_err_t esp_lwgsm_sntp_request(void)
     esp_err_t ret = ESP_OK;
     lwgsmr_t res;
     esp_lwgsm_sntp_packet_t* ntp_msg = NULL;
+    bool is_error = false;
 
     ESP_LOGI(TAG, "Requesting time to SNTP server %s:%d", pctx->hostname, pctx->port);
 
@@ -427,6 +428,7 @@ static esp_err_t esp_lwgsm_sntp_request(void)
     res = lwgsm_netconn_connect(pctx->udp_pcb, pctx->hostname, pctx->port);
     if(res != lwgsmOK){ 
         ESP_LOGE(TAG, "Not able to connect to SNTP server: %s:%d", pctx->hostname, pctx->port);
+        is_error = true;
         goto clean;
     }
 
@@ -440,6 +442,7 @@ static esp_err_t esp_lwgsm_sntp_request(void)
     res = lwgsm_netconn_send(pctx->udp_pcb, ntp_msg, sizeof(*ntp_msg));
     if(res != lwgsmOK){ 
         ESP_LOGE(TAG, "Failed to send SNTP request message.");
+        is_error = true;
         goto clean;
     }
 
@@ -448,6 +451,7 @@ static esp_err_t esp_lwgsm_sntp_request(void)
     ret = esp_lwgsm_sntp_recv(ntp_msg);
     if(ret != ESP_OK){ 
         ESP_LOGE(TAG, "Failed to receive response from SNTP server.");
+        is_error = true;
         goto clean;
     }
 
@@ -455,6 +459,7 @@ static esp_err_t esp_lwgsm_sntp_request(void)
     ret = esp_lwgsm_sntp_process(ntp_msg);
     if(ret != ESP_OK){ 
         ESP_LOGE(TAG, "Failed to process SNTP response.");
+        is_error = true;
         goto clean;
     }
 
@@ -462,9 +467,18 @@ static esp_err_t esp_lwgsm_sntp_request(void)
         res = lwgsm_netconn_close(pctx->udp_pcb);
         if(res != lwgsmOK){
             ESP_LOGE(TAG, "Error closing the connection while clean. (%d)", res);
+            is_error = true;
         }
         if(ntp_msg != NULL){
             vPortFree(ntp_msg);
+        }
+        // Start the timer to retry again later
+        if(is_error && pctx->timer){
+            xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS);
+            xTimerChangePeriod(pctx->timer, ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS, 1000/portTICK_PERIOD_MS);
+            if( xTimerStart(pctx->timer, 0) != pdPASS){
+                ESP_LOGE(TAG, "Error starting the update timer.");
+            }
         }
         return ret;
 }
