@@ -54,7 +54,7 @@
 // #define LWGSM_RESET_PIN             19
 
 /* LWGSM DEBUGGING LEVEL */
-#define LWGSM_CFG_DBG               LWGSM_DBG_ON
+#define LWGSM_CFG_DBG               LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_LVL_MIN       LWGSM_DBG_LVL_WARNING
 #define LWGSM_CFG_DBG_TYPES_ON      LWGSM_DBG_TYPE_ALL
 
@@ -93,7 +93,8 @@
 #define LWGSM_SIM7080                   1
 #define LWGSM_SIM7080_TCP_RECV_MANUAL   1
 
-#define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_BOTH
+#define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_CAT_M
+#define LWGSM_PREFERRED_MODE_SELECTION  LWGSM_MODE_SELECTION_AUTO
 
 #define LWGSM_PRIMARY_DNS_SERVER        "8.8.8.8"           // Google Primary DNS server
 #define LWGSM_SECONDARY_DNS_SERVER      "8.8.4.4"           // Google Secondary DNS server
