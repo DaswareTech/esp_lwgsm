@@ -19,5 +19,6 @@
 *******************************************************************************/
 
 esp_err_t esp_lwgsm_get_rssi(int16_t* rssi);
+esp_err_t esp_lwgsm_get_device_revision_cached(char** rev);
 
 #endif /* ESP_LWGSM_INFO_H */

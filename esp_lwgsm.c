@@ -436,6 +436,21 @@ esp_err_t esp_lwgsm_get_rssi(int16_t* rssi)
     return ret;
 }
 
+esp_err_t esp_lwgsm_get_device_revision_cached(char** rev)
+{
+    lwgsmr_t err;
+    esp_err_t ret = ESP_OK;
+
+    err = lwgsm_device_get_cached_revision(rev);
+    ESP_LOGI(TAG, "Device Identified %s", *rev);
+
+    if(err != lwgsmOK){
+        ret = ESP_FAIL;
+    }
+
+    return ret;
+}
+
 /*******************************************************************************
  * 
  * Private function bodies
