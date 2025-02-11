@@ -261,7 +261,7 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     }
 
     if(pbuf == NULL){
-        ret = lwgsm_netconn_receive_manual(pClient, &pbuf, datalen);
+        ret = lwgsm_netconn_receive(pClient, &pbuf);
         if(ret == lwgsmTIMEOUT){
             return 0;
         }

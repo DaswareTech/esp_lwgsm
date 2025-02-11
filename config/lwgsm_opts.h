@@ -45,6 +45,8 @@
 #define LWGSM_CFG_INPUT_USE_PROCESS           1
 #define LWGSM_CFG_MEM_CUSTOM                  1
 
+#define LWGSM_CFG_CONN_POLL_INTERVAL      100
+
 /* Enable network, conn and netconn APIs */
 #define LWGSM_CFG_NETWORK                     1
 #define LWGSM_CFG_CONN                        1
@@ -76,7 +78,7 @@
                                             } while (0)
 
 /* Time in milliseconds for sending first AT command after reset */
-#define LWGSM_CFG_RESET_DELAY_DEFAULT       1000
+#define LWGSM_CFG_RESET_DELAY_DEFAULT       5000
 #define LWGSM_CFG_RESET_ON_INIT             1
 #define LWGSM_CFG_WAIT_AFTER_RESET          CONFIG_ESP_LWGSM_WAIT_AFTER_RESET_MODULE
 
@@ -91,7 +93,7 @@
 #define LWGSM_UART_QUEUE_SIZE       10
 
 #define LWGSM_SIM7080                   1
-#define LWGSM_SIM7080_TCP_RECV_MANUAL   1
+#define LWGSM_SIM7080_TCP_RECV_MANUAL   0
 
 #define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_CAT_M
 #define LWGSM_PREFERRED_MODE_SELECTION  LWGSM_MODE_SELECTION_AUTO

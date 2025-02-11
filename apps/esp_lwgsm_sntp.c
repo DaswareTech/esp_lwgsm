@@ -503,7 +503,7 @@ static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg)
     }
 
     do{
-        res = lwgsm_netconn_receive_manual(pctx->udp_pcb, &pbuf, ESP_LWGSM_SNTP_MSG_LEN - offset);
+        res = lwgsm_netconn_receive(pctx->udp_pcb, &pbuf);
         if(res != lwgsmOK){
             ret = ESP_FAIL;
             goto clean;
