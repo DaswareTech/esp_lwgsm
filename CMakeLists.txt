@@ -1,6 +1,6 @@
 set(submodule lwgsm)
 
-if(CONFIG_ESP_TLS_USING_LWGSM)
+if(CONFIG_ESP_TLS_LWGSM_SUPPORT)
     set(SRC_FILES   ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${submodule}_netconn.c
                     ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${submodule}_network_api.c
                     # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/apps/mqtt/${submodule}_mqtt_client_api.c
