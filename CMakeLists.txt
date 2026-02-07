@@ -1,7 +1,6 @@
 set(submodule lwgsm)
 
-if(CONFIG_ESP_TLS_LWGSM_SUPPORT)
-    set(SRC_FILES   ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${submodule}_netconn.c
+set(SRC_FILES   ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${submodule}_netconn.c
                     ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/api/${submodule}_network_api.c
                     # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/apps/mqtt/${submodule}_mqtt_client_api.c
                     # ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/apps/mqtt/${submodule}_mqtt_client_evt.c
@@ -54,14 +53,13 @@ if(CONFIG_ESP_TLS_LWGSM_SUPPORT)
                     ${CMAKE_CURRENT_SOURCE_DIR}/esp_lwgsm.c
         )
 
-    set(HEADER_FILES 
-                    ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/include
-                    ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/include/system/port/esp32
-                    ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/include
-                    ${CMAKE_CURRENT_SOURCE_DIR}/include
-                    ${CMAKE_CURRENT_SOURCE_DIR}/config
-        )
-endif()
+set(HEADER_FILES
+                ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/${submodule}/src/include/system/port/esp32
+                ${CMAKE_CURRENT_SOURCE_DIR}/${submodule}/snippets/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/config
+    )
 
 idf_component_register(
     SRCS
