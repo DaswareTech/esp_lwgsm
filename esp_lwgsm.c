@@ -582,6 +582,8 @@ static esp_err_t prv_esp_lwgsm_init(lwgsm_evt_fn evt_func, uint8_t reinit)
     ret = aws_prov_get_gsm_settings(&apn_name, &pdp_address);
     if(ret != ESP_OK){ return ret; }
 
+    ESP_LOGI(TAG, "Setting APN: %s", apn_name);
+
     ret = lwgsm_network_request_define_pdp_context(ESP_LWGSM_PDP_INDEX, LWGSM_PDP_TYPE_IP, apn_name, pdp_address, LWGSM_APN_D_COMP_OFF,
                 LWGSM_APN_H_COMP_OFF, false, true);
     vPortFree(apn_name);
