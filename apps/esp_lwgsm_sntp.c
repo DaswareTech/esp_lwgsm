@@ -332,26 +332,53 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
         pctx->timer = NULL;
     }
 
-    /* Stop the worker via STOP sentinel; poll eTaskGetState briefly. */
+    /* Close the netconn BEFORE waiting for the worker. If the worker is
+     * blocked inside lwgsm_netconn_receive (20-second timeout), closing
+     * the connection unblocks it with an error; otherwise we'd be polling
+     * for up to 20 s for the recv to time out. After the worker exits we
+     * still call lwgsm_netconn_delete below to release the handle. */
+    if(pctx->udp_pcb != NULL){
+        (void)lwgsm_netconn_close(pctx->udp_pcb);
+    }
+
+    /* Stop the worker via STOP sentinel and poll for self-delete. The poll
+     * budget is generous (5 s) because even with the netconn-close above,
+     * the worker may need to finish its current iteration's clean path. */
     if(pctx->sntp_evt_q != NULL){
         sntp_evt_t stop_evt = { .type = SNTP_EVT_STOP };
         (void)xQueueSend(pctx->sntp_evt_q, &stop_evt, portMAX_DELAY);
-        for(int i = 0; i < 50 && pctx->sntp_worker_task != NULL; ++i){
+        bool worker_exited = false;
+        for(int i = 0; i < 500 && pctx->sntp_worker_task != NULL; ++i){
             eTaskState state = eTaskGetState(pctx->sntp_worker_task);
-            if(state == eDeleted || state == eInvalid){ break; }
+            if(state == eDeleted || state == eInvalid){
+                worker_exited = true;
+                break;
+            }
             vTaskDelay(pdMS_TO_TICKS(10));
         }
+
+        /* If the worker is still alive after the poll budget, leak pctx
+         * rather than free it underneath a still-running worker — UAF
+         * inside the worker would corrupt unrelated state, while a leaked
+         * pctx is benign until the next _init (which re-checks pctx and
+         * will now find a stale-but-stable pointer; not perfect but safe
+         * enough for an exceptional path). */
+        if(!worker_exited){
+            ESP_LOGE(TAG, "SNTP worker did not exit within 5s; leaking pctx to avoid UAF.");
+            return ESP_FAIL;
+        }
+
         vQueueDelete(pctx->sntp_evt_q);
         pctx->sntp_evt_q = NULL;
         pctx->sntp_worker_task = NULL;
     }
 
-    /* Now safe to release the netconn — no worker can be using it. */
+    /* Now safe to release the netconn — worker is guaranteed exited. */
     if(pctx->udp_pcb != NULL){
         res = lwgsm_netconn_delete(pctx->udp_pcb);
         if(res != lwgsmOK){
             ret = ESP_FAIL;
-            ESP_LOGW(TAG, "Failed to close LWGSM connection (%d).",
+            ESP_LOGW(TAG, "Failed to delete LWGSM connection (%d).",
                      lwgsm_netconn_getconnnum(pctx->udp_pcb));
         }
         pctx->udp_pcb = NULL;
