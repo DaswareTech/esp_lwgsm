@@ -137,35 +137,60 @@ esp_err_t esp_lwgsm_connect(int* fd, const char* host, int port, uint8_t block)
     esp_err_t res;
     lwgsmr_t ret = lwgsmERR;
 
+    /* Single-connection invariant: refuse to overwrite a live pClient.
+     * Caller must call esp_lwgsm_close() before reconnecting. */
+    if (pClient != NULL) {
+        ESP_LOGW(TAG, "esp_lwgsm_connect: pClient already non-NULL; refusing to overwrite. "
+                       "Call esp_lwgsm_close() first.");
+        if (fd != NULL) {
+            *fd = -1;
+        }
+        return ESP_ERR_INVALID_STATE;
+    }
+
     pClient = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_TCP);
 
-    if (pClient != NULL) {
-        ESP_LOGD(TAG, "Connecting to %s:%d", host, port);
-        if(block){
-            ret = lwgsm_netconn_connect(pClient, host, port);
-            if(ret == lwgsmOK){
-                ESP_LOGD(TAG, "TCP connection creation success.");
-            }else{
-                ESP_LOGE(TAG, "TCP connection creation error. Code %d", ret);
-            }
-        }else{
-            ret = lwgsm_netconn_connect_async(pClient, host, port);
-            if(ret == lwgsmOK){
-                ESP_LOGD(TAG, "Connection request sended.");
-            }else{
-                ESP_LOGE(TAG, "Connection request sending error. Code %d", ret);
-            }
+    if (pClient == NULL) {
+        ESP_LOGE(TAG, "esp_lwgsm_connect: lwgsm_netconn_new failed.");
+        if (fd != NULL) {
+            *fd = -1;
+        }
+        return ESP_FAIL;
+    }
+
+    ESP_LOGD(TAG, "Connecting to %s:%d", host, port);
+    if (block) {
+        ret = lwgsm_netconn_connect(pClient, host, port);
+        if (ret == lwgsmOK) {
+            ESP_LOGD(TAG, "TCP connection creation success.");
+        } else {
+            ESP_LOGE(TAG, "TCP connection creation error. Code %d", ret);
+        }
+    } else {
+        ret = lwgsm_netconn_connect_async(pClient, host, port);
+        if (ret == lwgsmOK) {
+            ESP_LOGD(TAG, "Connection request sended.");
+        } else {
+            ESP_LOGE(TAG, "Connection request sending error. Code %d", ret);
         }
     }
-    
-    if(ret != lwgsmOK){
+
+    if (ret != lwgsmOK) {
         ESP_LOGE(TAG, "Error connecting server. Code %d", ret);
+        /* Free the netconn we just allocated so we don't leak it across
+         * retries. Mirror esp_lwgsm_close's delete + NULL pattern. */
+        (void)lwgsm_netconn_delete(pClient);
+        pClient = NULL;
+        if (fd != NULL) {
+            *fd = -1;
+        }
+        return ESP_FAIL;
     }
 
-    *fd = lwgsm_netconn_getconnnum(pClient);
-
-    res = ret == lwgsmOK ? ESP_OK : ESP_FAIL;
-
+    if (fd != NULL) {
+        *fd = lwgsm_netconn_getconnnum(pClient);
+    }
+    res = ESP_OK;
     return res;
 }
 
@@ -179,6 +204,11 @@ esp_err_t esp_lwgsm_close(int fd)
     lwgsmr_t ret1, ret2;
 
     ESP_LOGI(TAG, "On connection closing...");
+
+    if (pClient == NULL) {
+        ESP_LOGW(TAG, "esp_lwgsm_close: pClient is NULL; nothing to close.");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
@@ -216,6 +246,10 @@ int esp_lwgsm_send(int fd, const char* data, size_t datalen, int flags)
 
     (void) flags;
 
+    if (pClient == NULL) {
+        return -1;
+    }
+
     if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
@@ -249,6 +283,10 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     static int offset = 0;
 
     (void) flags;
+
+    if (pClient == NULL) {
+        return -1;
+    }
 
     if(lwgsm_netconn_getconnnum(pClient) != fd){
         ESP_LOGE(TAG, "Error getting the connection number.");
@@ -355,20 +393,27 @@ uint8_t esp_lwgsm_is_connected(int fd, uint32_t timeout)
     uint32_t attempts = 10;
     uint32_t interval = 0;
 
-    if(lwgsm_netconn_getconnnum(pClient) != fd){
-        return -1;
-    }      
+    /* pClient may legitimately be NULL after close or before connect.
+     * Return 0 (not connected) instead of the previous `return -1` which
+     * wrapped to 255 and was misread as `true` by callers like
+     * esp_tls_lwgsm/esp_tls.c (`if(!esp_lwgsm_is_connected(...))`). */
+    if (pClient == NULL) {
+        return 0;
+    }
+
+    if (lwgsm_netconn_getconnnum(pClient) != fd) {
+        return 0;
+    }
 
     connected = lwgsm_netconn_is_connected(pClient);
 
-    if(timeout > 0){
+    if (timeout > 0) {
         interval = timeout / attempts;
-    }
-    else{
+    } else {
         return connected;
     }
 
-    while(!connected && (attempts > 0)){
+    while (!connected && (attempts > 0)) {
         connected = lwgsm_netconn_is_connected(pClient);
         lwgsm_delay(interval);
         --attempts;
@@ -407,6 +452,10 @@ esp_err_t esp_lwgsm_oper_scan()
  */
 int esp_lwgsm_set_recv_timeout(int fd, uint32_t timeout)
 {
+    if (pClient == NULL) {
+        return -1;
+    }
+
     if(lwgsm_netconn_getconnnum(pClient) != fd){
         return -1;
     }
