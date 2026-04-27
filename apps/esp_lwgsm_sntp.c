@@ -21,6 +21,8 @@
 
 /* FreeRTOS includes */
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "freertos/timers.h"
 
 /* Own header */
@@ -127,6 +129,22 @@ typedef struct{
     uint32_t txTm_f;         // 32 bits. Transmit time-stamp fraction of a second.
 } esp_lwgsm_sntp_packet_t;
 
+/* SNTP worker event types.
+ * The Tmr Svc daemon posts SNTP_EVT_REQUEST and returns immediately;
+ * the worker drains the queue and calls esp_lwgsm_sntp_request, which
+ * blocks on modem dial + UDP send + 20s receive timeout. Running this
+ * on the daemon would block every other software timer in the app. */
+typedef enum {
+    SNTP_EVT_STOP,
+    SNTP_EVT_REQUEST,
+} sntp_evt_type_t;
+
+typedef struct {
+    sntp_evt_type_t type;
+} sntp_evt_t;
+
+#define SNTP_EVT_Q_DEPTH 4
+
 typedef struct{
     char* hostname;
     uint16_t port;
@@ -139,6 +157,8 @@ typedef struct{
         uint8_t init : 1;
     } flags;
     uint16_t to_next_update;
+    QueueHandle_t sntp_evt_q;
+    TaskHandle_t  sntp_worker_task;
 } esp_lwgsm_sntp_ctx_t;
 
 /*******************************************************************************
@@ -164,6 +184,7 @@ static void esp_lwgsm_sntp_process_timestamps(esp_lwgsm_sntp_packet_t* msg);
 static inline void esp_lwgsm_sntp_set_sync_status(esp_lwgsm_sntp_sync_status_t sync_status);
 static inline int32_t esp_lwgsm_stnp_htonl(int32_t value);
 static void esp_lwgsm_timer_cb( TimerHandle_t xTimer );
+static void sntp_worker_task(void* args);
 
 /*******************************************************************************
  * 
@@ -178,9 +199,10 @@ static void esp_lwgsm_timer_cb( TimerHandle_t xTimer );
  */
 esp_err_t esp_lwgsm_sntp_init(void)
 {
-    esp_err_t ret =  ESP_OK;
-    char* timezone;
-    
+    esp_err_t ret = ESP_OK;
+    char* timezone = NULL;
+    BaseType_t tret;
+
     ESP_LOGD(TAG, "SNTP initialised\n");
 
     if(pctx != NULL){
@@ -189,8 +211,14 @@ esp_err_t esp_lwgsm_sntp_init(void)
         }
     }
 
-    /* Allocate context struct */
+    /* Allocate context struct. NULL-check before memset (PC-1 from
+     * earlier phases — under heap pressure, an unchecked pvPortMalloc
+     * followed by memset hard-faults the device). */
     pctx = pvPortMalloc(sizeof(esp_lwgsm_sntp_ctx_t));
+    if(pctx == NULL){
+        ESP_LOGE(TAG, "Failed to allocate SNTP context");
+        return ESP_ERR_NO_MEM;
+    }
     memset(pctx, 0, sizeof(esp_lwgsm_sntp_ctx_t));
 
     // Get metadata from flash
@@ -199,14 +227,21 @@ esp_err_t esp_lwgsm_sntp_init(void)
         goto clean;
     }
 
-    // Set timezone
+    // Set timezone. setenv copies the value, so we can free our local
+    // immediately after. Without this free, every call to _init leaks the
+    // timezone string returned by aws_prov_get_sntp_settings.
     ESP_LOGI(TAG, "Setting timezone to %s", timezone);
     setenv("TZ", timezone, 1);
     tzset();
+    vPortFree(timezone);
+    timezone = NULL;
 
     /* Get a LWGSM connection handler */
     pctx->udp_pcb = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_UDP);
-    if(pctx->udp_pcb == NULL){ goto clean; }
+    if(pctx->udp_pcb == NULL){
+        ret = ESP_FAIL;
+        goto clean;
+    }
 
     /* Set receive timeout */
     lwgsm_netconn_set_receive_timeout(pctx->udp_pcb, 20000);
@@ -223,18 +258,46 @@ esp_err_t esp_lwgsm_sntp_init(void)
     /* Set counter to next update */
     pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
 
+    /* Create the worker queue + task BEFORE the timer so that even an
+     * immediately-firing timer (which can happen if the system clock is
+     * way off) finds the queue ready to receive its event. */
+    pctx->sntp_evt_q = xQueueCreate(SNTP_EVT_Q_DEPTH, sizeof(sntp_evt_t));
+    if(pctx->sntp_evt_q == NULL){
+        ESP_LOGE(TAG, "Failed to create SNTP worker queue");
+        ret = ESP_ERR_NO_MEM;
+        goto clean;
+    }
+
+    tret = xTaskCreate(sntp_worker_task, "SNTP worker",
+                       4096, NULL,
+                       tskIDLE_PRIORITY + 3,
+                       &pctx->sntp_worker_task);
+    if(tret != pdPASS){
+        ESP_LOGE(TAG, "Failed to create SNTP worker task");
+        ret = ESP_FAIL;
+        goto clean;
+    }
+
     /* Create the timer to update */
     pctx->timer = xTimerCreate("ESP_LWGSM_SNTP_TIMER",
                                ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS,
                                pdTRUE,
                                0,
                                esp_lwgsm_timer_cb);
-    
+    if(pctx->timer == NULL){
+        ESP_LOGE(TAG, "Failed to create SNTP timer");
+        ret = ESP_ERR_NO_MEM;
+        goto clean;
+    }
+
     pctx->flags.init = true;
 
     return ret;
 
     clean:
+        if(timezone != NULL){
+            vPortFree(timezone);
+        }
         esp_lwgsm_sntp_deinit();
         return ret;
 }
@@ -249,23 +312,64 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     lwgsmr_t res = lwgsmOK;
     esp_err_t ret = ESP_OK;
 
-    if(pctx->hostname != NULL) { vPortFree(pctx->hostname); }
-    if(pctx->udp_pcb != NULL) { 
+    /* Guard against deinit called when init never ran (or after a
+     * previous deinit). Pre-fix: dereferencing pctx->hostname here
+     * crashed when init failed mid-way and called us via clean: */
+    if(pctx == NULL){
+        return ESP_OK;
+    }
+
+    /* Stop the timer FIRST so it cannot post a fresh REQUEST event into
+     * a queue we're about to delete. xTimerDelete with portMAX_DELAY
+     * blocks until the Tmr Svc daemon has processed the delete. */
+    if(pctx->timer != NULL){
+        if(xTimerStop(pctx->timer, portMAX_DELAY) != pdPASS){
+            ESP_LOGW(TAG, "Failed to stop SNTP timer during deinit.");
+        }
+        if(xTimerDelete(pctx->timer, portMAX_DELAY) != pdPASS){
+            ESP_LOGE(TAG, "Error while the timer removing.");
+        }
+        pctx->timer = NULL;
+    }
+
+    /* Stop the worker via STOP sentinel; poll eTaskGetState briefly. */
+    if(pctx->sntp_evt_q != NULL){
+        sntp_evt_t stop_evt = { .type = SNTP_EVT_STOP };
+        (void)xQueueSend(pctx->sntp_evt_q, &stop_evt, portMAX_DELAY);
+        for(int i = 0; i < 50 && pctx->sntp_worker_task != NULL; ++i){
+            eTaskState state = eTaskGetState(pctx->sntp_worker_task);
+            if(state == eDeleted || state == eInvalid){ break; }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        vQueueDelete(pctx->sntp_evt_q);
+        pctx->sntp_evt_q = NULL;
+        pctx->sntp_worker_task = NULL;
+    }
+
+    /* Now safe to release the netconn — no worker can be using it. */
+    if(pctx->udp_pcb != NULL){
         res = lwgsm_netconn_delete(pctx->udp_pcb);
         if(res != lwgsmOK){
             ret = ESP_FAIL;
-            ESP_LOGW(TAG, "Failed to close LWGSM connection (%d).", lwgsm_netconn_getconnnum(fd));
-            return ret;
+            ESP_LOGW(TAG, "Failed to close LWGSM connection (%d).",
+                     lwgsm_netconn_getconnnum(pctx->udp_pcb));
         }
+        pctx->udp_pcb = NULL;
     }
+
     pctx->notify_cb = NULL;
-    if(pctx->timer != NULL){
-        if(xTimerDelete(pctx->timer, 0) != pdPASS){
-            ESP_LOGE(TAG, "Error while the timer removing.");
-        }
-    }
     pctx->flags.init = false;
-    if(pctx != NULL) { vPortFree(pctx); }
+
+    if(pctx->hostname != NULL){
+        vPortFree(pctx->hostname);
+        pctx->hostname = NULL;
+    }
+
+    /* Free pctx and NULL the global so the next _init starts clean.
+     * Pre-fix: vPortFree(pctx) without nulling left a dangling pointer
+     * that the next init would dereference at line 187. */
+    vPortFree(pctx);
+    pctx = NULL;
 
     return ret;
 }
@@ -290,13 +394,16 @@ esp_err_t esp_lwgsm_sntp_stop(void)
 {
     esp_err_t ret = ESP_OK;
 
+    if(pctx == NULL || pctx->timer == NULL){
+        return ESP_OK;
+    }
+
+    /* Just stop. The previous code also called xTimerReset here, which
+     * in FreeRTOS re-arms a stopped timer and so contradicts the
+     * function's name — _stop accidentally restarted the timer. */
     if(xTimerStop(pctx->timer, 1000/portTICK_PERIOD_MS) != pdPASS){
         ret = ESP_ERR_TIMEOUT;
         ESP_LOGE(TAG, "Not able to stop timer.");
-    }
-    if(xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS) != pdPASS){
-        ret = ESP_ERR_TIMEOUT;
-        ESP_LOGE(TAG, "Not able to reset timer.");
     }
 
     pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
@@ -502,18 +609,35 @@ static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg)
         goto clean;
     }
 
-    do{
+    /* Receive into msg until we've accumulated sizeof(*msg) bytes (the
+     * full 48-byte SNTP packet). The previous code checked pbuf_tot_len
+     * <= ESP_LWGSM_SNTP_MSG_LEN per iteration but accumulated `offset`
+     * across iterations, so two 40-byte pbufs (80 bytes total) would
+     * stomp past the buffer. Bound by remaining capacity instead and
+     * free each pbuf inside the loop to prevent the per-iteration leak
+     * where the next lwgsm_netconn_receive overwrote the local pointer. */
+    while(offset < sizeof(*msg)){
         res = lwgsm_netconn_receive(pctx->udp_pcb, &pbuf);
         if(res != lwgsmOK){
             ret = ESP_FAIL;
             goto clean;
         }
         pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
-        if(pbuf_tot_len <= ESP_LWGSM_SNTP_MSG_LEN){
-            data_recv = lwgsm_pbuf_copy(pbuf, msg, pbuf_tot_len, offset);
-            offset += data_recv;
+        size_t remaining = sizeof(*msg) - offset;
+        if(pbuf_tot_len > remaining){
+            /* Server sent a malformed/oversized chunk. Log and abort the
+             * receive — better to fail and let the retry timer handle it
+             * than to silently truncate or overflow. */
+            ESP_LOGE(TAG, "SNTP pbuf chunk %u exceeds remaining capacity %u; aborting recv.",
+                     (unsigned)pbuf_tot_len, (unsigned)remaining);
+            ret = ESP_ERR_INVALID_RESPONSE;
+            goto clean;
         }
-    }while(offset < ESP_LWGSM_SNTP_MSG_LEN);
+        data_recv = lwgsm_pbuf_copy(pbuf, msg, pbuf_tot_len, offset);
+        offset += data_recv;
+        lwgsm_pbuf_free(pbuf);
+        pbuf = NULL;
+    }
 
     clean:
         if(pbuf != NULL) { lwgsm_pbuf_free(pbuf); }
@@ -615,19 +739,69 @@ static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
 *******************************************************************************/
 
 /**
- * @brief The callback used to trigger a SNTP request
- * 
+ * @brief Thin timer callback — posts a REQUEST event when the countdown
+ * elapses, then returns. Previously this called esp_lwgsm_sntp_request
+ * directly on the Tmr Svc daemon, which blocked the daemon for
+ * lwgsm_netconn_connect + send + 20-second receive timeout. All of
+ * that now runs on sntp_worker_task.
+ *
  * @param xTimer The timer which triggers the callback
  */
 static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
 {
-    if((xTimerGetPeriod(pctx->timer) == ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS) && (pctx->to_next_update > ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000) ){
-        pctx->to_next_update -= ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000;
-    }else{
-        pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
-        if(xTimerStop(pctx->timer, 1000/portTICK_PERIOD_MS) != pdPASS){
-            ESP_LOGE(TAG, "Error while stop the timer");
-        }
-        esp_lwgsm_sntp_request();
+    (void)xTimer;
+    if(pctx == NULL || pctx->timer == NULL){
+        return;
     }
+
+    if((xTimerGetPeriod(pctx->timer) == ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS) &&
+       (pctx->to_next_update > ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000)){
+        pctx->to_next_update -= ESP_LWGSM_SNTP_UPDATE_PERIOD_MS / 1000;
+        return;
+    }
+
+    /* Countdown elapsed — drop the request to the worker and stop the
+     * timer; the worker will restart it on success/failure via
+     * esp_lwgsm_sntp_process / esp_lwgsm_sntp_request's clean path. */
+    pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
+    if(xTimerStop(pctx->timer, 0) != pdPASS){
+        ESP_LOGE(TAG, "Error while stop the timer");
+    }
+
+    sntp_evt_t evt = { .type = SNTP_EVT_REQUEST };
+    if(pctx->sntp_evt_q != NULL &&
+       xQueueSend(pctx->sntp_evt_q, &evt, 0) != pdTRUE){
+        ESP_LOGE(TAG, "SNTP worker queue full; request event dropped.");
+    }
+}
+
+/**
+ * @brief SNTP worker task.
+ *
+ * Single-consumer on pctx->sntp_evt_q. Drains REQUEST events and calls
+ * esp_lwgsm_sntp_request, which performs the modem-blocking work
+ * (connect, send, receive with 20s timeout). Exits on STOP via
+ * vTaskDelete(NULL); deinit polls eTaskGetState to confirm.
+ */
+static void sntp_worker_task(void* args)
+{
+    sntp_evt_t evt;
+    (void)args;
+
+    ESP_LOGI(TAG, "SNTP worker task started.");
+
+    while(true){
+        if(xQueueReceive(pctx->sntp_evt_q, &evt, portMAX_DELAY) != pdTRUE){
+            continue;
+        }
+        if(evt.type == SNTP_EVT_STOP){
+            break;
+        }
+        if(evt.type == SNTP_EVT_REQUEST){
+            (void)esp_lwgsm_sntp_request();
+        }
+    }
+
+    ESP_LOGI(TAG, "SNTP worker task exiting.");
+    vTaskDelete(NULL);
 }
