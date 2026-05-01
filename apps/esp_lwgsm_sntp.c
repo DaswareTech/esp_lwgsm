@@ -169,7 +169,6 @@ typedef struct{
 
 const char* TAG = "ESP_LWGSM_SNTP";
 static esp_lwgsm_sntp_ctx_t* pctx;
-static lwgsm_netconn_p fd;
 
 /*******************************************************************************
  * 
