@@ -65,6 +65,11 @@ static uint8_t initFlag = 0;
 static lwgsm_sim_state_t simState;
 static lwgsm_netconn_p pClient;
 static lwgsm_pbuf_p pbuf;
+/* RX cursor for the in-flight pbuf. File-scope so esp_lwgsm_close can
+ * release a partially-consumed pbuf and reset the cursor when the peer
+ * tears down the connection mid-read. */
+static int rx_offset;
+static int rx_pbuf_tot_len;
 
 /*******************************************************************************
  * 
@@ -214,6 +219,16 @@ esp_err_t esp_lwgsm_close(int fd)
         return -1;
     }
 
+    /* Drop any unread RX pbuf still cached from the torn-down session.
+     * Without this, the lwgsm_pbuf is orphaned (the netconn it belonged
+     * to is about to be deleted), which leaks ~150 bytes per reconnect. */
+    if (pbuf != NULL) {
+        lwgsm_pbuf_free(pbuf);
+        pbuf = NULL;
+    }
+    rx_offset = 0;
+    rx_pbuf_tot_len = 0;
+
     ret1 = lwgsm_netconn_close(pClient);
 
     if(ret1 != lwgsmOK){
@@ -279,8 +294,6 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     lwgsmr_t ret;
     int data_recv = -1;
     int to_copy = 0;
-    static int pbuf_tot_len;
-    static int offset = 0;
 
     (void) flags;
 
@@ -307,17 +320,19 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
             ESP_LOGE(TAG, "lwgsm_netconn_receive_manual returns with code(%d).", ret);
             return -1;
         }
-        pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
+        rx_pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
+        rx_offset = 0;
     }
 
     if(pbuf != NULL){
-        to_copy = LWGSM_MIN(pbuf_tot_len, datalen);
-        data_recv = lwgsm_pbuf_copy(pbuf, data, to_copy, offset);
-        offset += data_recv;
+        to_copy = LWGSM_MIN(rx_pbuf_tot_len, datalen);
+        data_recv = lwgsm_pbuf_copy(pbuf, data, to_copy, rx_offset);
+        rx_offset += data_recv;
 
-        if(offset == pbuf_tot_len){
+        if(rx_offset == rx_pbuf_tot_len){
             lwgsm_pbuf_free(pbuf);
-            offset = 0;
+            rx_offset = 0;
+            rx_pbuf_tot_len = 0;
             pbuf = NULL;
         }
     }
