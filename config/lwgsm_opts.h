@@ -56,7 +56,9 @@
 // #define LWGSM_RESET_PIN             19
 
 /* LWGSM DEBUGGING LEVEL */
-#define LWGSM_CFG_DBG               LWGSM_DBG_OFF
+/* DIAG (diag/gsm-at-trace): master debug switch ON so the LL_SEND/LL_RECV
+ * AT-level trace below compiles in. All other debug modules stay OFF. */
+#define LWGSM_CFG_DBG               LWGSM_DBG_ON
 #define LWGSM_CFG_DBG_LVL_MIN       LWGSM_DBG_LVL_WARNING
 #define LWGSM_CFG_DBG_TYPES_ON      LWGSM_DBG_TYPE_ALL
 
@@ -68,8 +70,11 @@
 #define LWGSM_CFG_DBG_CONN          LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_IPD           LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_PBUF          LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_LL_SEND       LWGSM_DBG_OFF
-#define LWGSM_CFG_DBG_LL_RECV       LWGSM_DBG_OFF
+/* DIAG (diag/gsm-at-trace): raw AT channel trace, both directions. Output is
+ * capped and printf-based (see lwgsm_ll_esp32.c) so it stays readable and is
+ * not captured by the persistent log. */
+#define LWGSM_CFG_DBG_LL_SEND       LWGSM_DBG_ON
+#define LWGSM_CFG_DBG_LL_RECV       LWGSM_DBG_ON
 
 
 #include "esp_log.h"
