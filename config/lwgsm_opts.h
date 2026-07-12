@@ -58,7 +58,7 @@
 /* LWGSM DEBUGGING LEVEL */
 /* DIAG (diag/gsm-at-trace): master debug switch ON so the LL_SEND/LL_RECV
  * AT-level trace below compiles in. All other debug modules stay OFF. */
-#define LWGSM_CFG_DBG               LWGSM_DBG_ON
+#define LWGSM_CFG_DBG               LWGSM_DBG_OFF
 #define LWGSM_CFG_DBG_LVL_MIN       LWGSM_DBG_LVL_WARNING
 #define LWGSM_CFG_DBG_TYPES_ON      LWGSM_DBG_TYPE_ALL
 
