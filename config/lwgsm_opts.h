@@ -98,7 +98,11 @@
 #define LWGSM_UART_QUEUE_SIZE       10
 
 #define LWGSM_SIM7080                   1
-#define LWGSM_SIM7080_TCP_RECV_MANUAL   0
+/* DIAG (diag/gsm-at-trace): manual CARECV receive. The undocumented URC push
+ * mode streams payload the modem may interleave with command responses (the
+ * AT-channel wedge captured on fw 1951B10); CARECV keeps all payload inside
+ * command-scoped responses. Set back to 0 to compare against push mode. */
+#define LWGSM_SIM7080_TCP_RECV_MANUAL   1
 
 #define LWGSM_PREFERRED_NETWORK_TYPE    LWGSM_NET_TYPE_CAT_M
 #define LWGSM_PREFERRED_MODE_SELECTION  LWGSM_MODE_SELECTION_AUTO

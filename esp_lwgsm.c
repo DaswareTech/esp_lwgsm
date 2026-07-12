@@ -312,12 +312,20 @@ int esp_lwgsm_recv(int fd, char* data, size_t datalen, int flags)
     }
 
     if(pbuf == NULL){
+#if LWGSM_SIM7080 && LWGSM_SIM7080_TCP_RECV_MANUAL
+        /* Fetch a full modem-buffer chunk regardless of the caller's size;
+         * the surplus stays cached in `pbuf` and feeds the subsequent small
+         * reads (TLS 5-byte header / record body pattern) without extra
+         * AT+CARECV round trips. */
+        ret = lwgsm_netconn_receive_manual(pClient, &pbuf, LWGSM_SIM7080_TCP_RECV_LENGTH_MAX);
+#else
         ret = lwgsm_netconn_receive(pClient, &pbuf);
+#endif /* LWGSM_SIM7080 && LWGSM_SIM7080_TCP_RECV_MANUAL */
         if(ret == lwgsmTIMEOUT){
             return 0;
         }
         else if(ret != lwgsmOK){
-            ESP_LOGE(TAG, "lwgsm_netconn_receive_manual returns with code(%d).", ret);
+            ESP_LOGE(TAG, "lwgsm_netconn_receive returns with code(%d).", ret);
             return -1;
         }
         rx_pbuf_tot_len = lwgsm_pbuf_length(pbuf, 1);
