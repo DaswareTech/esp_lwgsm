@@ -113,6 +113,12 @@ esp_err_t esp_lwgsm_reinit()
 esp_err_t esp_lwgsm_reset_sw()
 {
     lwgsmr_t ret = lwgsmOK;
+    /* Bounded AT probing after reset: lwgsm_check_at uses a 500 ms command
+     * timeout, so this allows ~30 s for the modem to come back. The previous
+     * unbounded loop trapped the caller (the connection monitor's event task)
+     * forever when the modem stopped answering — returning ESP_FAIL instead
+     * lets the caller's retry path issue a fresh hardware reset. */
+    int attempts = 60;
 
     if(lwgsm_network_is_attached()){
         ret = lwgsm_network_request_detach();
@@ -122,7 +128,11 @@ esp_err_t esp_lwgsm_reset_sw()
         ret = lwgsm_reset(NULL, NULL, 1);
         do{
             ret = lwgsm_check_at(1);
-        }while(ret != lwgsmOK);
+        }while(ret != lwgsmOK && --attempts > 0);
+        if(ret != lwgsmOK){
+            ESP_LOGE(TAG, "Modem not answering AT after reset.");
+            return ESP_FAIL;
+        }
         ret = lwgsm_config_module(NULL, NULL, 1);
     }
 
