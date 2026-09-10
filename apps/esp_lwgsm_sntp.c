@@ -27,6 +27,7 @@
 
 /* Own header */
 #include "apps/esp_lwgsm_sntp.h"
+#include "apps/esp_lwgsm_sntp_policy.h"
 
 /*******************************************************************************
  * 
@@ -466,11 +467,16 @@ void __attribute__((weak)) esp_lwgsm_sntp_sync_time(struct timeval *tv)
         int64_t cpu_time = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
         int64_t sntp_time = (int64_t)tv->tv_sec * 1000000L + (int64_t)tv->tv_usec;
         int64_t delta = sntp_time - cpu_time;
+        /* Always report the measured error: it is the one number that tells
+         * how wrong the clock was (e.g. the post-reboot RC-oscillator error). */
+        ESP_LOGI(TAG, "Clock error vs SNTP server: %lld ms", (long long)(delta / 1000LL));
+        /* Slew only sub-second drift. adjtime() corrects at 1/64 of real time
+         * and accepts errors up to ~35 min, so slewing a minutes-large
+         * post-reboot error would leave every timestamp wrong for hours. */
         struct timeval tv_delta = { .tv_sec = delta / 1000000L, .tv_usec = delta % 1000000L };
-        if (adjtime(&tv_delta, NULL) == -1) {
-            ESP_LOGD(TAG, "Function adjtime don't update time because the error is very big");
+        if (esp_lwgsm_sntp_should_step(delta) || adjtime(&tv_delta, NULL) == -1) {
             settimeofday(tv, NULL);
-            ESP_LOGD(TAG, "Time was synchronized through settimeofday");
+            ESP_LOGI(TAG, "Time was stepped through settimeofday");
             esp_lwgsm_sntp_set_sync_status(ESP_LWGSM_SNTP_SYNC_STATUS_COMPLETED);
         } else {
             esp_lwgsm_sntp_set_sync_status(ESP_LWGSM_SNTP_SYNC_STATUS_IN_PROGRESS);
