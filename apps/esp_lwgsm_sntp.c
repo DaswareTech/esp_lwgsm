@@ -469,7 +469,10 @@ void __attribute__((weak)) esp_lwgsm_sntp_sync_time(struct timeval *tv)
         int64_t delta = sntp_time - cpu_time;
         /* Always report the measured error: it is the one number that tells
          * how wrong the clock was (e.g. the post-reboot RC-oscillator error). */
-        ESP_LOGI(TAG, "Clock error vs SNTP server: %lld ms", (long long)(delta / 1000LL));
+        /* newlib nano printf has no %lld: print as sign + seconds + millis. */
+        int64_t abs_delta = delta < 0 ? -delta : delta;
+        ESP_LOGI(TAG, "Clock error vs SNTP server: %s%ld.%03lu s", delta < 0 ? "-" : "+",
+                 (long)(abs_delta / 1000000LL), (unsigned long)((abs_delta % 1000000LL) / 1000LL));
         /* Slew only sub-second drift. adjtime() corrects at 1/64 of real time
          * and accepts errors up to ~35 min, so slewing a minutes-large
          * post-reboot error would leave every timestamp wrong for hours. */
