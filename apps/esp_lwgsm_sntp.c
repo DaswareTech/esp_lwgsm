@@ -23,6 +23,7 @@
 /* FreeRTOS includes */
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
 
@@ -42,6 +43,7 @@
 /* A reply takes well under a second on the modem; waiting longer for one UDP
  * packet only delays trying the next server. */
 #define ESP_LWGSM_SNTP_RECV_TIMEOUT_MS          4000
+#define ESP_LWGSM_SNTP_DEFAULT_PORT             123
 
 /* SNTP protocol defines */
 #define ESP_LWGSM_SNTP_MSG_LEN                48
@@ -188,6 +190,7 @@ static esp_lwgsm_sntp_ctx_t* pctx;
 static esp_err_t esp_lwgsm_sntp_request(void);
 static esp_err_t esp_lwgsm_sntp_query(const char* server, esp_lwgsm_sntp_packet_t* msg);
 static void esp_lwgsm_sntp_arm_timer(TickType_t period);
+static void esp_lwgsm_sntp_timer_barrier(void);
 static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg);
 static esp_err_t esp_lwgsm_sntp_process(esp_lwgsm_sntp_packet_t* msg);
 static void esp_lwgsm_sntp_process_timestamps(esp_lwgsm_sntp_packet_t* msg);
@@ -337,17 +340,12 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     }
     pctx->stopping = 1;
 
-    /* Stop the timer FIRST so it cannot post a fresh REQUEST event into
-     * a queue we're about to delete. xTimerDelete with portMAX_DELAY
-     * blocks until the Tmr Svc daemon has processed the delete. */
+    /* Stop the timer first so it posts no new REQUEST. It is deleted only
+     * after the worker has exited: a request in flight may still re-arm it. */
     if(pctx->timer != NULL){
         if(xTimerStop(pctx->timer, portMAX_DELAY) != pdPASS){
             ESP_LOGW(TAG, "Failed to stop SNTP timer during deinit.");
         }
-        if(xTimerDelete(pctx->timer, portMAX_DELAY) != pdPASS){
-            ESP_LOGE(TAG, "Error while the timer removing.");
-        }
-        pctx->timer = NULL;
     }
 
     /* Close the netconn BEFORE waiting for the worker. If the worker is
@@ -365,7 +363,8 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     if(pctx->sntp_evt_q != NULL){
         sntp_evt_t stop_evt = { .type = SNTP_EVT_STOP };
         (void)xQueueSend(pctx->sntp_evt_q, &stop_evt, portMAX_DELAY);
-        bool worker_exited = false;
+        /* No task means xTaskCreate failed in init: nothing to wait for. */
+        bool worker_exited = (pctx->sntp_worker_task == NULL);
         for(int i = 0; i < 500 && pctx->sntp_worker_task != NULL; ++i){
             eTaskState state = eTaskGetState(pctx->sntp_worker_task);
             if(state == eDeleted || state == eInvalid){
@@ -386,9 +385,24 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
             return ESP_FAIL;
         }
 
+        pctx->sntp_worker_task = NULL;
+    }
+
+    /* The timer callback reads pctx and posts to the queue, so both must
+     * outlive any callback already running: the barrier returns once the
+     * timer task has processed the delete. */
+    if(pctx->timer != NULL){
+        (void)xTimerStop(pctx->timer, portMAX_DELAY);
+        if(xTimerDelete(pctx->timer, portMAX_DELAY) != pdPASS){
+            ESP_LOGE(TAG, "Error while the timer removing.");
+        }
+        esp_lwgsm_sntp_timer_barrier();
+        pctx->timer = NULL;
+    }
+
+    if(pctx->sntp_evt_q != NULL){
         vQueueDelete(pctx->sntp_evt_q);
         pctx->sntp_evt_q = NULL;
-        pctx->sntp_worker_task = NULL;
     }
 
     /* Now safe to release the netconn — worker is guaranteed exited. */
@@ -624,12 +638,14 @@ static esp_err_t esp_lwgsm_sntp_query(const char* server, esp_lwgsm_sntp_packet_
     esp_err_t ret = ESP_FAIL;
     lwgsmr_t res;
     TickType_t start = xTaskGetTickCount();
+    /* The provisioned port belongs to the provisioned host; the fallbacks are public servers. */
+    uint16_t port = (server == pctx->hostname) ? pctx->port : ESP_LWGSM_SNTP_DEFAULT_PORT;
 
-    ESP_LOGI(TAG, "Requesting time to SNTP server %s:%d", server, pctx->port);
+    ESP_LOGI(TAG, "Requesting time to SNTP server %s:%u", server, (unsigned)port);
 
-    res = lwgsm_netconn_connect(pctx->udp_pcb, server, pctx->port);
+    res = lwgsm_netconn_connect(pctx->udp_pcb, server, port);
     if(res != lwgsmOK){
-        ESP_LOGE(TAG, "Not able to connect to SNTP server: %s:%d (%d)", server, pctx->port, res);
+        ESP_LOGE(TAG, "Not able to connect to SNTP server: %s:%u (%d)", server, (unsigned)port, res);
         goto clean;
     }
 
@@ -669,7 +685,7 @@ static esp_err_t esp_lwgsm_sntp_query(const char* server, esp_lwgsm_sntp_packet_
  */
 static void esp_lwgsm_sntp_arm_timer(TickType_t period)
 {
-    if(pctx->timer == NULL){
+    if(pctx->timer == NULL || pctx->stopping){
         return;
     }
     xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS);
@@ -677,6 +693,33 @@ static void esp_lwgsm_sntp_arm_timer(TickType_t period)
     if(xTimerStart(pctx->timer, 0) != pdPASS){
         ESP_LOGE(TAG, "Error starting the update timer.");
     }
+}
+
+static void esp_lwgsm_sntp_barrier_cb(void* sem, uint32_t unused)
+{
+    (void)unused;
+    xSemaphoreGive((SemaphoreHandle_t)sem);
+}
+
+/**
+ * @brief Wait until the timer task has processed every command queued so far
+ *
+ * Timer commands and pended calls share one FIFO, so once this pended call
+ * runs no callback of a timer deleted before it can still be running.
+ * Must not be called from the timer task itself.
+ */
+static void esp_lwgsm_sntp_timer_barrier(void)
+{
+    SemaphoreHandle_t sem = xSemaphoreCreateBinary();
+    if(sem == NULL){
+        ESP_LOGW(TAG, "No memory for the timer barrier; waiting instead.");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        return;
+    }
+    if(xTimerPendFunctionCall(esp_lwgsm_sntp_barrier_cb, sem, 0, portMAX_DELAY) == pdPASS){
+        (void)xSemaphoreTake(sem, portMAX_DELAY);
+    }
+    vSemaphoreDelete(sem);
 }
 
 /**
@@ -822,7 +865,7 @@ static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
 static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
 {
     (void)xTimer;
-    if(pctx == NULL || pctx->timer == NULL){
+    if(pctx == NULL || pctx->timer == NULL || pctx->stopping){
         return;
     }
 
