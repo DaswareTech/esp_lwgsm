@@ -18,10 +18,12 @@
 
 /* AWS provisioning */
 #include "aws_provisioning.h"
+#include "sab_sntp_servers.h"
 
 /* FreeRTOS includes */
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
 
@@ -37,7 +39,11 @@
 
 #define ESP_LWGSM_SNTP_UPDATE_PERIOD_MS         1000   // 1 seconds
 #define ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS      ESP_LWGSM_SNTP_UPDATE_PERIOD_MS/portTICK_PERIOD_MS
-#define ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS       5000/portTICK_PERIOD_MS    // 500 milliseconds
+#define ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS       5000/portTICK_PERIOD_MS    // 5 seconds
+/* A reply takes well under a second on the modem; waiting longer for one UDP
+ * packet only delays trying the next server. */
+#define ESP_LWGSM_SNTP_RECV_TIMEOUT_MS          4000
+#define ESP_LWGSM_SNTP_DEFAULT_PORT             123
 
 /* SNTP protocol defines */
 #define ESP_LWGSM_SNTP_MSG_LEN                48
@@ -133,7 +139,7 @@ typedef struct{
 /* SNTP worker event types.
  * The Tmr Svc daemon posts SNTP_EVT_REQUEST and returns immediately;
  * the worker drains the queue and calls esp_lwgsm_sntp_request, which
- * blocks on modem dial + UDP send + 20s receive timeout. Running this
+ * blocks on modem dial + UDP send + receive timeout, once per server. Running this
  * on the daemon would block every other software timer in the app. */
 typedef enum {
     SNTP_EVT_STOP,
@@ -149,6 +155,10 @@ typedef struct {
 typedef struct{
     char* hostname;
     uint16_t port;
+    const char* servers[SAB_SNTP_MAX_SERVERS];
+    uint8_t server_count;
+    uint8_t next_server;     /* first server the next request tries */
+    volatile uint8_t stopping; /* set by deinit: the worker must not reopen the netconn */
     lwgsm_netconn_p udp_pcb;
     esp_lwgsm_sntp_sync_mode_t sync_mode;
     esp_lwgsm_sntp_sync_status_t sync_status;
@@ -178,6 +188,9 @@ static esp_lwgsm_sntp_ctx_t* pctx;
 *******************************************************************************/
 
 static esp_err_t esp_lwgsm_sntp_request(void);
+static esp_err_t esp_lwgsm_sntp_query(const char* server, esp_lwgsm_sntp_packet_t* msg);
+static void esp_lwgsm_sntp_arm_timer(TickType_t period);
+static void esp_lwgsm_sntp_timer_barrier(void);
 static esp_err_t esp_lwgsm_sntp_recv(esp_lwgsm_sntp_packet_t* msg);
 static esp_err_t esp_lwgsm_sntp_process(esp_lwgsm_sntp_packet_t* msg);
 static void esp_lwgsm_sntp_process_timestamps(esp_lwgsm_sntp_packet_t* msg);
@@ -236,6 +249,13 @@ esp_err_t esp_lwgsm_sntp_init(void)
     vPortFree(timezone);
     timezone = NULL;
 
+    pctx->server_count = (uint8_t)sab_sntp_server_list(pctx->hostname, pctx->servers, SAB_SNTP_MAX_SERVERS);
+    if(pctx->server_count == 0){
+        ESP_LOGE(TAG, "No SNTP server configured");
+        ret = ESP_ERR_INVALID_STATE;
+        goto clean;
+    }
+
     /* Get a LWGSM connection handler */
     pctx->udp_pcb = lwgsm_netconn_new(LWGSM_NETCONN_TYPE_UDP);
     if(pctx->udp_pcb == NULL){
@@ -244,7 +264,7 @@ esp_err_t esp_lwgsm_sntp_init(void)
     }
 
     /* Set receive timeout */
-    lwgsm_netconn_set_receive_timeout(pctx->udp_pcb, 20000);
+    lwgsm_netconn_set_receive_timeout(pctx->udp_pcb, ESP_LWGSM_SNTP_RECV_TIMEOUT_MS);
 
     /* Set the default sync mode */
     pctx->sync_mode = ESP_LWGSM_SNTP_SYNC_MODE_SMOOTH;
@@ -318,24 +338,20 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     if(pctx == NULL){
         return ESP_OK;
     }
+    pctx->stopping = 1;
 
-    /* Stop the timer FIRST so it cannot post a fresh REQUEST event into
-     * a queue we're about to delete. xTimerDelete with portMAX_DELAY
-     * blocks until the Tmr Svc daemon has processed the delete. */
+    /* Stop the timer first so it posts no new REQUEST. It is deleted only
+     * after the worker has exited: a request in flight may still re-arm it. */
     if(pctx->timer != NULL){
         if(xTimerStop(pctx->timer, portMAX_DELAY) != pdPASS){
             ESP_LOGW(TAG, "Failed to stop SNTP timer during deinit.");
         }
-        if(xTimerDelete(pctx->timer, portMAX_DELAY) != pdPASS){
-            ESP_LOGE(TAG, "Error while the timer removing.");
-        }
-        pctx->timer = NULL;
     }
 
     /* Close the netconn BEFORE waiting for the worker. If the worker is
-     * blocked inside lwgsm_netconn_receive (20-second timeout), closing
+     * blocked inside lwgsm_netconn_receive (receive timeout), closing
      * the connection unblocks it with an error; otherwise we'd be polling
-     * for up to 20 s for the recv to time out. After the worker exits we
+     * for the recv to time out. After the worker exits we
      * still call lwgsm_netconn_delete below to release the handle. */
     if(pctx->udp_pcb != NULL){
         (void)lwgsm_netconn_close(pctx->udp_pcb);
@@ -347,7 +363,8 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
     if(pctx->sntp_evt_q != NULL){
         sntp_evt_t stop_evt = { .type = SNTP_EVT_STOP };
         (void)xQueueSend(pctx->sntp_evt_q, &stop_evt, portMAX_DELAY);
-        bool worker_exited = false;
+        /* No task means xTaskCreate failed in init: nothing to wait for. */
+        bool worker_exited = (pctx->sntp_worker_task == NULL);
         for(int i = 0; i < 500 && pctx->sntp_worker_task != NULL; ++i){
             eTaskState state = eTaskGetState(pctx->sntp_worker_task);
             if(state == eDeleted || state == eInvalid){
@@ -368,9 +385,24 @@ esp_err_t esp_lwgsm_sntp_deinit(void)
             return ESP_FAIL;
         }
 
+        pctx->sntp_worker_task = NULL;
+    }
+
+    /* The timer callback reads pctx and posts to the queue, so both must
+     * outlive any callback already running: the barrier returns once the
+     * timer task has processed the delete. */
+    if(pctx->timer != NULL){
+        (void)xTimerStop(pctx->timer, portMAX_DELAY);
+        if(xTimerDelete(pctx->timer, portMAX_DELAY) != pdPASS){
+            ESP_LOGE(TAG, "Error while the timer removing.");
+        }
+        esp_lwgsm_sntp_timer_barrier();
+        pctx->timer = NULL;
+    }
+
+    if(pctx->sntp_evt_q != NULL){
         vQueueDelete(pctx->sntp_evt_q);
         pctx->sntp_evt_q = NULL;
-        pctx->sntp_worker_task = NULL;
     }
 
     /* Now safe to release the netconn — worker is guaranteed exited. */
@@ -553,76 +585,141 @@ esp_lwgsm_sntp_sync_status_t esp_lwgsm_sntp_get_sync_status(void)
 *******************************************************************************/
 
 /**
- * @brief Request time to SNTP server
- * 
- * @return ESP_OK if success, esp_err_t member otherwise   
+ * @brief Request the time, trying each SNTP server once
+ *
+ * NTP is one UDP packet each way and nothing resends a lost one, so every
+ * server gets a short receive timeout and a miss moves on to the next server.
+ * The server that answered is tried first next time. When none answers, the
+ * retry timer starts another round.
+ *
+ * @return ESP_OK if the clock was set, esp_err_t member otherwise
  */
 static esp_err_t esp_lwgsm_sntp_request(void)
 {
-    esp_err_t ret = ESP_OK;
-    lwgsmr_t res;
-    esp_lwgsm_sntp_packet_t* ntp_msg = NULL;
-    bool is_error = false;
+    esp_err_t ret = ESP_FAIL;
+    esp_lwgsm_sntp_packet_t* ntp_msg;
 
-    ESP_LOGI(TAG, "Requesting time to SNTP server %s:%d", pctx->hostname, pctx->port);
-
-    /* Connect to SNTP server */
-    res = lwgsm_netconn_connect(pctx->udp_pcb, pctx->hostname, pctx->port);
-    if(res != lwgsmOK){ 
-        ESP_LOGE(TAG, "Not able to connect to SNTP server: %s:%d", pctx->hostname, pctx->port);
-        is_error = true;
-        goto clean;
-    }
-
-    /* Create and zero out the packet. All 48 bytes worth. */
     ntp_msg = pvPortMalloc(sizeof(*ntp_msg));
-    memset(ntp_msg, 0, sizeof(*ntp_msg));
-    /* Set the first byte's bits to 00,011,011 for li = 0, vn = 3, and mode = 3. The rest will be left set to zero. */
-    ntp_msg->li_vn_mode = ESP_LWGSM_SNTP_LI_NO_WARNING | ESP_LWGSM_SNTP_VERSION | ESP_LWGSM_SNTP_MODE_CLIENT;
+    if(ntp_msg == NULL){
+        ESP_LOGE(TAG, "Failed to allocate SNTP message");
+        esp_lwgsm_sntp_arm_timer(ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS);
+        return ESP_ERR_NO_MEM;
+    }
 
-    /* Send the request message */
-    res = lwgsm_netconn_send(pctx->udp_pcb, ntp_msg, sizeof(*ntp_msg));
-    if(res != lwgsmOK){ 
-        ESP_LOGE(TAG, "Failed to send SNTP request message.");
-        is_error = true;
+    for(uint8_t tries = 0; tries < pctx->server_count && !pctx->stopping; tries++){
+        const char* server = pctx->servers[pctx->next_server];
+
+        ret = esp_lwgsm_sntp_query(server, ntp_msg);
+        if(ret == ESP_OK){
+            ret = esp_lwgsm_sntp_process(ntp_msg);
+            if(ret == ESP_OK){
+                break;
+            }
+            ESP_LOGE(TAG, "Invalid SNTP response from %s.", server);
+        }
+        pctx->next_server = (uint8_t)((pctx->next_server + 1) % pctx->server_count);
+    }
+
+    vPortFree(ntp_msg);
+    esp_lwgsm_sntp_arm_timer(ret == ESP_OK ? ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS
+                                           : ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS);
+    return ret;
+}
+
+/**
+ * @brief Send one request to @p server and wait for its reply
+ *
+ * @param server Host name of the SNTP server
+ * @param msg Buffer for the request, then the reply
+ * @return ESP_OK if a full reply was received, esp_err_t member otherwise
+ */
+static esp_err_t esp_lwgsm_sntp_query(const char* server, esp_lwgsm_sntp_packet_t* msg)
+{
+    esp_err_t ret = ESP_FAIL;
+    lwgsmr_t res;
+    TickType_t start = xTaskGetTickCount();
+    /* The provisioned port belongs to the provisioned host; the fallbacks are public servers. */
+    uint16_t port = (server == pctx->hostname) ? pctx->port : ESP_LWGSM_SNTP_DEFAULT_PORT;
+
+    ESP_LOGI(TAG, "Requesting time to SNTP server %s:%u", server, (unsigned)port);
+
+    res = lwgsm_netconn_connect(pctx->udp_pcb, server, port);
+    if(res != lwgsmOK){
+        ESP_LOGE(TAG, "Not able to connect to SNTP server: %s:%u (%d)", server, (unsigned)port, res);
         goto clean;
     }
 
-    /* Receive message from SNTP server */
-    memset(ntp_msg, 0, sizeof(*ntp_msg));
-    ret = esp_lwgsm_sntp_recv(ntp_msg);
-    if(ret != ESP_OK){ 
-        ESP_LOGE(TAG, "Failed to receive response from SNTP server.");
-        is_error = true;
+    /* 48 bytes, all zero except li = 0, vn = 3, mode = 3 (client). */
+    memset(msg, 0, sizeof(*msg));
+    msg->li_vn_mode = ESP_LWGSM_SNTP_LI_NO_WARNING | ESP_LWGSM_SNTP_VERSION | ESP_LWGSM_SNTP_MODE_CLIENT;
+
+    res = lwgsm_netconn_send(pctx->udp_pcb, msg, sizeof(*msg));
+    if(res != lwgsmOK){
+        ESP_LOGE(TAG, "Failed to send SNTP request message to %s (%d).", server, res);
         goto clean;
     }
 
-    /* Process the message */
-    ret = esp_lwgsm_sntp_process(ntp_msg);
-    if(ret != ESP_OK){ 
-        ESP_LOGE(TAG, "Failed to process SNTP response.");
-        is_error = true;
-        goto clean;
+    memset(msg, 0, sizeof(*msg));
+    ret = esp_lwgsm_sntp_recv(msg);
+    if(ret != ESP_OK){
+        ESP_LOGE(TAG, "No response from SNTP server %s after %lu ms.", server,
+                 (unsigned long)((xTaskGetTickCount() - start) * portTICK_PERIOD_MS));
+    }else{
+        ESP_LOGI(TAG, "SNTP response from %s in %lu ms.", server,
+                 (unsigned long)((xTaskGetTickCount() - start) * portTICK_PERIOD_MS));
     }
 
     clean:
         res = lwgsm_netconn_close(pctx->udp_pcb);
         if(res != lwgsmOK){
             ESP_LOGE(TAG, "Error closing the connection while clean. (%d)", res);
-            is_error = true;
-        }
-        if(ntp_msg != NULL){
-            vPortFree(ntp_msg);
-        }
-        // Start the timer to retry again later
-        if(is_error && pctx->timer){
-            xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS);
-            xTimerChangePeriod(pctx->timer, ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS, 1000/portTICK_PERIOD_MS);
-            if( xTimerStart(pctx->timer, 0) != pdPASS){
-                ESP_LOGE(TAG, "Error starting the update timer.");
-            }
         }
         return ret;
+}
+
+/**
+ * @brief (Re)start the SNTP timer with @p period
+ *
+ * @param period ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS to count down to the next
+ *               update, ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS to retry soon
+ */
+static void esp_lwgsm_sntp_arm_timer(TickType_t period)
+{
+    if(pctx->timer == NULL || pctx->stopping){
+        return;
+    }
+    xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS);
+    xTimerChangePeriod(pctx->timer, period, 1000/portTICK_PERIOD_MS);
+    if(xTimerStart(pctx->timer, 0) != pdPASS){
+        ESP_LOGE(TAG, "Error starting the update timer.");
+    }
+}
+
+static void esp_lwgsm_sntp_barrier_cb(void* sem, uint32_t unused)
+{
+    (void)unused;
+    xSemaphoreGive((SemaphoreHandle_t)sem);
+}
+
+/**
+ * @brief Wait until the timer task has processed every command queued so far
+ *
+ * Timer commands and pended calls share one FIFO, so once this pended call
+ * runs no callback of a timer deleted before it can still be running.
+ * Must not be called from the timer task itself.
+ */
+static void esp_lwgsm_sntp_timer_barrier(void)
+{
+    SemaphoreHandle_t sem = xSemaphoreCreateBinary();
+    if(sem == NULL){
+        ESP_LOGW(TAG, "No memory for the timer barrier; waiting instead.");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        return;
+    }
+    if(xTimerPendFunctionCall(esp_lwgsm_sntp_barrier_cb, sem, 0, portMAX_DELAY) == pdPASS){
+        (void)xSemaphoreTake(sem, portMAX_DELAY);
+    }
+    vSemaphoreDelete(sem);
 }
 
 /**
@@ -710,23 +807,6 @@ static esp_err_t esp_lwgsm_sntp_process(esp_lwgsm_sntp_packet_t* msg)
     esp_lwgsm_sntp_process_timestamps(msg);
 
     clean:
-        if(ret == ESP_OK){
-            if(pctx->timer){ 
-                xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS);
-                xTimerChangePeriod(pctx->timer, ESP_LWGSM_SNTP_UPDATE_PERIOD_TICKS, 1000/portTICK_PERIOD_MS);
-                if( xTimerStart(pctx->timer, 0) != pdPASS){
-                    ESP_LOGE(TAG, "Error starting the update timer.");
-                }
-            }
-        }else if(ret == ESP_ERR_INVALID_STATE || ret == ESP_ERR_INVALID_RESPONSE){
-            if(pctx->timer){ 
-                xTimerReset(pctx->timer, 1000/portTICK_PERIOD_MS);
-                xTimerChangePeriod(pctx->timer, ESP_LWGSM_SNTP_RETRY_PERIOD_TICKS, 1000/portTICK_PERIOD_MS);
-                if( xTimerStart(pctx->timer, 0) != pdPASS){
-                    ESP_LOGE(TAG, "Error starting the update timer.");
-                }
-            }
-        }
         return ret;
 }
 
@@ -777,7 +857,7 @@ static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
  * @brief Thin timer callback — posts a REQUEST event when the countdown
  * elapses, then returns. Previously this called esp_lwgsm_sntp_request
  * directly on the Tmr Svc daemon, which blocked the daemon for
- * lwgsm_netconn_connect + send + 20-second receive timeout. All of
+ * lwgsm_netconn_connect + send + receive timeout per server. All of
  * that now runs on sntp_worker_task.
  *
  * @param xTimer The timer which triggers the callback
@@ -785,7 +865,7 @@ static inline int32_t esp_lwgsm_stnp_htonl(int32_t value)
 static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
 {
     (void)xTimer;
-    if(pctx == NULL || pctx->timer == NULL){
+    if(pctx == NULL || pctx->timer == NULL || pctx->stopping){
         return;
     }
 
@@ -796,8 +876,8 @@ static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
     }
 
     /* Countdown elapsed — drop the request to the worker and stop the
-     * timer; the worker will restart it on success/failure via
-     * esp_lwgsm_sntp_process / esp_lwgsm_sntp_request's clean path. */
+     * timer; esp_lwgsm_sntp_request restarts it with the update or the
+     * retry period. */
     pctx->to_next_update = LWGSM_SNTP_UPDATE_INTERVAL;
     if(xTimerStop(pctx->timer, 0) != pdPASS){
         ESP_LOGE(TAG, "Error while stop the timer");
@@ -815,7 +895,7 @@ static void esp_lwgsm_timer_cb( TimerHandle_t xTimer )
  *
  * Single-consumer on pctx->sntp_evt_q. Drains REQUEST events and calls
  * esp_lwgsm_sntp_request, which performs the modem-blocking work
- * (connect, send, receive with 20s timeout). Exits on STOP via
+ * (connect, send, receive, once per server). Exits on STOP via
  * vTaskDelete(NULL); deinit polls eTaskGetState to confirm.
  */
 static void sntp_worker_task(void* args)
