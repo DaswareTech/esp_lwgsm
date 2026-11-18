@@ -21,5 +21,13 @@ menu "ESP LWGSM"
         config ESP_LWGSM_WAIT_AFTER_RESET_MODULE
             int "Time in milliseconds to wait after the reset AT command is sent."
             default 10000
+        config ESP_LWGSM_RESET_POWER_DOWN
+            bool "Reset the SIM7080 with a full power down (AT+CPOWD=1)"
+            default y
+            help
+                Reset the module (at boot and when the connection is recovered) with AT+CPOWD=1 instead of
+                AT+CFUN=1,1. The M5Stack CatM units power the module on again by themselves (PWRKEY tied to
+                STATUS), so this is a cold restart instead of a firmware restart. Disable it on a board that
+                does not restart the module after a power down: it would stay off.
     endmenu
 endmenu
