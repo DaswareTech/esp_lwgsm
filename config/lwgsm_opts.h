@@ -42,6 +42,15 @@
  */
 
 #define LWGSM_CFG_AT_ECHO                     0
+
+/* Task stacks (bytes). ESP32 sizes from a bench measurement over GSM (connect, MQTT traffic, reboot, OTA), lowest
+ * free at 4096: produce 2864, process 3304, UART reading 3400, process received data 2464; sized to keep >= 1.5 KB
+ * free and give the heap back. The ESP32-S3 keeps 4096 (not measured there; it reserves 208 bytes more per task). */
+#include "sdkconfig.h"
+#if !CONFIG_IDF_TARGET_ESP32S3
+#define LWGSM_SYS_THREAD_SS                   3072  /* lwgsm_produce, lwgsm_process */
+#define LWGSM_READING_THREAD_STACK_SIZE       3584  /* LwGSM UART reading, LwGSM process received data */
+#endif
 #define LWGSM_CFG_INPUT_USE_PROCESS           1
 #define LWGSM_CFG_MEM_CUSTOM                  1
 
